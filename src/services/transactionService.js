@@ -1,0 +1,50 @@
+import { auth } from "@/firebase/auth";
+import { db } from "@/firebase/firestore";
+import {
+    addDoc,
+    collection,
+    getDocs,
+    orderBy,
+    query,
+    Timestamp,
+    where,
+} from "firebase/firestore";
+
+/**
+ * Add a single transaction
+ */
+export const addTransaction = async (transaction) => {
+  const user = auth.currentUser;
+  if (!user) throw new Error("User not logged in");
+
+  const docRef = await addDoc(collection(db, "transactions"), {
+    uid: user.uid,
+    ...transaction,
+    createdAt: Timestamp.now(),
+  });
+
+  return docRef.id;
+};
+
+
+
+export const getUserTransactions = async () => {
+  const user = auth.currentUser;
+
+  if (!user) {
+    throw new Error("User not logged in");
+  }
+
+  const q = query(
+    collection(db, "transactions"),
+    where("userId", "==", user.uid),
+    orderBy("createdAt", "desc")
+  );
+
+  const snapshot = await getDocs(q);
+
+  return snapshot.docs.map((doc) => ({
+    id: doc.id,
+    ...doc.data(),
+  }));
+};
