@@ -1,13 +1,13 @@
 import { auth } from "@/firebase/auth";
 import { db } from "@/firebase/firestore";
 import {
-    addDoc,
-    collection,
-    getDocs,
-    orderBy,
-    query,
-    Timestamp,
-    where,
+  addDoc,
+  collection,
+  getDocs,
+  orderBy,
+  query,
+  Timestamp,
+  where,
 } from "firebase/firestore";
 
 /**
@@ -26,18 +26,16 @@ export const addTransaction = async (transaction) => {
   return docRef.id;
 };
 
-
-
+/**
+ * Get logged-in user's transactions
+ */
 export const getUserTransactions = async () => {
   const user = auth.currentUser;
-
-  if (!user) {
-    throw new Error("User not logged in");
-  }
+  if (!user) throw new Error("User not logged in");
 
   const q = query(
     collection(db, "transactions"),
-    where("userId", "==", user.uid),
+    where("uid", "==", user.uid),
     orderBy("createdAt", "desc")
   );
 

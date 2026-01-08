@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { MainLayout } from "@/components/layout/MainLayout";
 import { Button } from "@/components/ui/button";
@@ -14,7 +14,7 @@ import {
   Home,
   ShoppingBag,
   TrendingUp,
-  Zap
+  Zap,
 } from "lucide-react";
 
 import {
@@ -32,8 +32,9 @@ import {
 
 import { getUserTransactions } from "@/services/transactionService";
 
-// category → icon + color mapping
-const CATEGORY_META: any = {
+/* ---------------- CATEGORY META ---------------- */
+
+const CATEGORY_META: Record<string, any> = {
   "Food & Dining": { icon: Coffee, color: "hsl(25, 50%, 35%)", budget: 15000 },
   Rent: { icon: Home, color: "hsl(38, 90%, 50%)", budget: 25000 },
   Transportation: { icon: Car, color: "hsl(35, 60%, 45%)", budget: 10000 },
@@ -41,6 +42,8 @@ const CATEGORY_META: any = {
   Utilities: { icon: Zap, color: "hsl(20, 35%, 40%)", budget: 6000 },
   Entertainment: { icon: Film, color: "hsl(45, 70%, 55%)", budget: 5000 },
 };
+
+/* ---------------- TOOLTIP ---------------- */
 
 const CustomTooltip = ({ active, payload }: any) => {
   if (active && payload && payload.length) {
@@ -55,16 +58,20 @@ const CustomTooltip = ({ active, payload }: any) => {
   return null;
 };
 
+/* ---------------- COMPONENT ---------------- */
+
 const Spending = () => {
   const [selectedPeriod, setSelectedPeriod] = useState("month");
   const [categoryData, setCategoryData] = useState<any[]>([]);
   const [monthlyTrend, setMonthlyTrend] = useState<any[]>([]);
 
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
   useEffect(() => {
     const loadData = async () => {
       const transactions = await getUserTransactions();
 
-      /** -------- CATEGORY AGGREGATION -------- */
+      /* ---- CATEGORY AGGREGATION ---- */
       const categoryMap: any = {};
 
       transactions.forEach((tx: any) => {
@@ -83,7 +90,7 @@ const Spending = () => {
 
       setCategoryData(Object.values(categoryMap));
 
-      /** -------- MONTHLY TREND -------- */
+      /* ---- MONTHLY TREND ---- */
       const monthMap: any = {};
       transactions.forEach((tx: any) => {
         monthMap[tx.month] = (monthMap[tx.month] || 0) + tx.amount;
@@ -108,19 +115,24 @@ const Spending = () => {
       {/* Header */}
       <div className="flex items-center justify-between mb-8">
         <div>
-          <h1 className="font-serif text-3xl font-bold">Spending Analyzer</h1>
+          <h1 className="font-serif text-3xl font-bold">
+            Spending Analyzer
+          </h1>
           <p className="text-muted-foreground mt-2">
             Understand your spending patterns
           </p>
         </div>
-        <label htmlFor="uploadStatement">
-            <Button variant="warm" className="gap-2 cursor-pointer">
-              Upload Statement
-            </Button>
-        </label>
 
-          <UploadStatement />
+        <Button
+          variant="warm"
+          className="gap-2"
+          onClick={() => fileInputRef.current?.click()}
+        >
+          Upload Statement
+        </Button>
 
+        {/* Hidden file input */}
+        <UploadStatement ref={fileInputRef} />
       </div>
 
       {/* Period Selector */}
@@ -144,18 +156,24 @@ const Spending = () => {
       {/* Summary Cards */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
         <div className="card-warm p-6">
-          <p className="text-muted-foreground text-sm">Total Spending</p>
+          <p className="text-muted-foreground text-sm">
+            Total Spending
+          </p>
           <p className="font-serif text-3xl font-bold">
             ₹{totalSpending.toLocaleString()}
           </p>
           <div className="flex items-center gap-2 mt-3">
             <TrendingUp className="h-4 w-4 text-destructive" />
-            <span className="text-destructive text-sm">Live data</span>
+            <span className="text-destructive text-sm">
+              Live data
+            </span>
           </div>
         </div>
 
         <div className="card-warm p-6">
-          <p className="text-muted-foreground text-sm">Budget Used</p>
+          <p className="text-muted-foreground text-sm">
+            Budget Used
+          </p>
           <p className="font-serif text-3xl font-bold">
             {totalBudget
               ? Math.round((totalSpending / totalBudget) * 100)
@@ -163,13 +181,19 @@ const Spending = () => {
             %
           </p>
           <Progress
-            value={totalBudget ? (totalSpending / totalBudget) * 100 : 0}
+            value={
+              totalBudget
+                ? (totalSpending / totalBudget) * 100
+                : 0
+            }
             className="mt-3"
           />
         </div>
 
         <div className="card-warm p-6">
-          <p className="text-muted-foreground text-sm">AI Insight</p>
+          <p className="text-muted-foreground text-sm">
+            AI Insight
+          </p>
           <div className="flex gap-3 mt-3">
             <AlertTriangle className="h-5 w-5 text-warning" />
             <p className="text-sm">
@@ -182,10 +206,17 @@ const Spending = () => {
       {/* Charts */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <div className="card-warm p-6">
-          <h3 className="font-serif text-xl mb-6">Spending by Category</h3>
+          <h3 className="font-serif text-xl mb-6">
+            Spending by Category
+          </h3>
           <ResponsiveContainer width="100%" height={250}>
             <PieChart>
-              <Pie data={categoryData} dataKey="value" innerRadius={60} outerRadius={90}>
+              <Pie
+                data={categoryData}
+                dataKey="value"
+                innerRadius={60}
+                outerRadius={90}
+              >
                 {categoryData.map((e, i) => (
                   <Cell key={i} fill={e.color} />
                 ))}
@@ -196,14 +227,20 @@ const Spending = () => {
         </div>
 
         <div className="card-warm p-6">
-          <h3 className="font-serif text-xl mb-6">Monthly Trend</h3>
+          <h3 className="font-serif text-xl mb-6">
+            Monthly Trend
+          </h3>
           <ResponsiveContainer width="100%" height={250}>
             <LineChart data={monthlyTrend}>
               <CartesianGrid strokeDasharray="3 3" />
               <XAxis dataKey="month" />
               <YAxis tickFormatter={(v) => `₹${v / 1000}k`} />
               <Tooltip content={<CustomTooltip />} />
-              <Line dataKey="spending" stroke="hsl(var(--primary))" strokeWidth={3} />
+              <Line
+                dataKey="spending"
+                stroke="hsl(var(--primary))"
+                strokeWidth={3}
+              />
             </LineChart>
           </ResponsiveContainer>
         </div>
