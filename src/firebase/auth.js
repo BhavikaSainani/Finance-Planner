@@ -1,20 +1,33 @@
-// auth.js
-import { getAuth, onAuthStateChanged } from "firebase/auth";
+import {
+  getAuth,
+  GoogleAuthProvider,
+  onAuthStateChanged,
+  signInWithPopup,
+  signOut,
+} from "firebase/auth";
+
+// ⚠️ make sure this path is correct
 import { app } from "./firebaseConfig";
 
+
 export const auth = getAuth(app);
+export const googleProvider = new GoogleAuthProvider();
 
-// Optional: a helper function to monitor auth state
+
+// 🔐 Google sign-in
+export const signInWithGoogle = async () => {
+  const result = await signInWithPopup(auth, googleProvider);
+  return result.user;
+};
+
+// 🚪 Logout
+export const logout = async () => {
+  await signOut(auth);
+};
+
+// 👀 Auth state listener
 export const monitorAuthState = (callback) => {
-  const unsubscribe = onAuthStateChanged(auth, async (user) => {
-    if (!user) {
-      console.log("User not logged in");
-      return;
-    }
-    // User is logged in
-    console.log("User logged in:", user);
-    if (callback) callback(user);
+  return onAuthStateChanged(auth, (user) => {
+    callback(user ?? null);
   });
-
-  return unsubscribe; // you can call this to stop listening later
 };
