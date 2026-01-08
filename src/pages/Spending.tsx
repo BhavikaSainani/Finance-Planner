@@ -15,6 +15,7 @@ import {
   ShoppingBag,
   TrendingUp,
   Zap,
+  Sparkles,
 } from "lucide-react";
 
 import {
@@ -64,6 +65,8 @@ const Spending = () => {
   const [selectedPeriod, setSelectedPeriod] = useState("month");
   const [categoryData, setCategoryData] = useState<any[]>([]);
   const [monthlyTrend, setMonthlyTrend] = useState<any[]>([]);
+  const [aiInsight, setAiInsight] = useState<string>("Loading insights...");
+  const [loadingInsight, setLoadingInsight] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -88,7 +91,8 @@ const Spending = () => {
         categoryMap[tx.category].value += tx.amount;
       });
 
-      setCategoryData(Object.values(categoryMap));
+      const processedCategories = Object.values(categoryMap);
+      setCategoryData(processedCategories);
 
       /* ---- MONTHLY TREND ---- */
       const monthMap: any = {};
@@ -102,6 +106,23 @@ const Spending = () => {
           spending: monthMap[m],
         }))
       );
+
+      /* ---- GET AI INSIGHT ---- */
+      if (processedCategories.length > 0) {
+        setLoadingInsight(true);
+        // Create a simple prompt summary
+        const summary = processedCategories.map(c => `${c.name}: ₹${c.value}`).join(", ");
+        const prompt = `Analyze this spending data and give one brief, actionable tip (max 2 sentences): ${summary}`;
+
+        // Dynamically import to avoid circular dependencies if any, though regular import is fine here.
+        import("@/services/aiService").then(async (service) => {
+          const advice = await service.getAIAdvice(prompt);
+          setAiInsight(advice);
+          setLoadingInsight(false);
+        });
+      } else {
+        setAiInsight("No data available for insights. Please upload a statement.");
+      }
     };
 
     loadData();
@@ -195,9 +216,9 @@ const Spending = () => {
             AI Insight
           </p>
           <div className="flex gap-3 mt-3">
-            <AlertTriangle className="h-5 w-5 text-warning" />
+            <Sparkles className={cn("h-5 w-5 text-accent shrink-0", loadingInsight && "animate-pulse")} />
             <p className="text-sm">
-              Insights will improve after statement uploads
+              {aiInsight}
             </p>
           </div>
         </div>

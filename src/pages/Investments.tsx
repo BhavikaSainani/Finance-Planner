@@ -1,17 +1,22 @@
+import { useState, useEffect } from "react";
 import { MainLayout } from "@/components/layout/MainLayout";
-import { 
+import {
   AreaChart, Area, XAxis, YAxis, ResponsiveContainer, Tooltip,
   PieChart, Pie, Cell
 } from "recharts";
-import { 
-  TrendingUp, TrendingDown, Shield, BarChart3, 
-  Wallet, RefreshCw, AlertTriangle, CheckCircle2
+import {
+  TrendingUp, TrendingDown, Shield, BarChart3,
+  Wallet, RefreshCw, AlertTriangle, CheckCircle2, Plus
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { cn } from "@/lib/utils";
+import { getInvestments } from "@/services/investmentsService";
+import { AddInvestmentDialog } from "@/components/investments/AddInvestmentDialog";
+import { toast } from "sonner";
 
-const portfolioHistory = [
+// Mock history data for chart (since we only have current snapshot)
+const mockHistory = [
   { month: "Jan", value: 250000 },
   { month: "Feb", value: 268000 },
   { month: "Mar", value: 255000 },
@@ -22,20 +27,23 @@ const portfolioHistory = [
   { month: "Aug", value: 365000 },
 ];
 
-const assetAllocation = [
-  { name: "Stocks", value: 45, color: "hsl(25, 50%, 35%)", amount: 164250 },
-  { name: "Mutual Funds", value: 30, color: "hsl(38, 90%, 50%)", amount: 109500 },
-  { name: "Fixed Deposits", value: 15, color: "hsl(35, 60%, 45%)", amount: 54750 },
-  { name: "Gold", value: 10, color: "hsl(45, 70%, 55%)", amount: 36500 },
+const COLORS = [
+  "hsl(25, 50%, 35%)",
+  "hsl(38, 90%, 50%)",
+  "hsl(35, 60%, 45%)",
+  "hsl(45, 70%, 55%)",
+  "hsl(142, 70%, 40%)",
+  "hsl(200, 70%, 50%)"
 ];
 
-const holdings = [
-  { name: "Reliance Industries", type: "Stock", invested: 50000, current: 62000, change: 24 },
-  { name: "HDFC Flexicap", type: "Mutual Fund", invested: 40000, current: 45200, change: 13 },
-  { name: "SBI Blue Chip", type: "Mutual Fund", invested: 35000, current: 38500, change: 10 },
-  { name: "TCS", type: "Stock", invested: 45000, current: 41000, change: -8.9 },
-  { name: "ICICI Prudential", type: "Mutual Fund", invested: 30000, current: 34800, change: 16 },
-];
+interface Investment {
+  id: string;
+  name: string;
+  type: string;
+  invested: number;
+  current: number;
+  change: number;
+}
 
 const CustomTooltip = ({ active, payload }: any) => {
   if (active && payload && payload.length) {
@@ -49,10 +57,73 @@ const CustomTooltip = ({ active, payload }: any) => {
 };
 
 const Investments = () => {
-  const totalInvested = 319000;
-  const currentValue = 365000;
+  const [holdings, setHoldings] = useState<Investment[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [aiInsight, setAiInsight] = useState<string>("Analyzing your portfolio...");
+
+  // Calculations
+  const totalInvested = holdings.reduce((sum, h) => sum + h.invested, 0);
+  const currentValue = holdings.reduce((sum, h) => sum + h.current, 0);
   const totalReturns = currentValue - totalInvested;
-  const returnsPercent = ((totalReturns / totalInvested) * 100).toFixed(1);
+  const returnsPercent = totalInvested ? ((totalReturns / totalInvested) * 100).toFixed(1) : "0.0";
+
+  // Calculate Asset Allocation
+  const assetAllocation = holdings.reduce((acc: any[], curr) => {
+    const existing = acc.find(a => a.name === curr.type);
+    if (existing) {
+      existing.value += curr.current;
+    } else {
+      acc.push({ name: curr.type, value: curr.current });
+    }
+    return acc;
+  }, []).map((item, index) => ({
+    ...item,
+    // Calculate percentage based on total current value
+    percent: currentValue ? Math.round((item.value / currentValue) * 100) : 0,
+    color: COLORS[index % COLORS.length]
+  }));
+
+  const loadInvestments = async () => {
+    try {
+      setLoading(true);
+      const data = await getInvestments();
+      const mapped: Investment[] = data.map((d: any) => ({
+        id: d.id,
+        name: d.name,
+        type: d.type,
+        invested: d.invested,
+        current: d.current,
+        change: d.change
+      }));
+      setHoldings(mapped);
+    } catch (error) {
+      console.error("Failed to load investments", error);
+      toast.error("Could not load investments");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadInvestments();
+  }, []);
+
+  useEffect(() => {
+    if (holdings.length > 0) {
+      const summary = `Total Invested: ₹${totalInvested}, Current Value: ₹${currentValue}, Returns: ${returnsPercent}%. ` +
+        `Asset Allocation: ${assetAllocation.map(a => `${a.name} ${a.percent}%`).join(", ")}. ` +
+        `Top Holdings: ${holdings.slice(0, 5).map(h => `${h.name} (${h.type})`).join(", ")}.`;
+
+      const prompt = `Analyze this investment portfolio and provide a brief performance review and one suggestion: ${summary}`;
+
+      import("@/services/aiService").then(async (service) => {
+        const advice = await service.getAIAdvice(prompt);
+        setAiInsight(advice);
+      });
+    } else if (!loading) {
+      setAiInsight("Add some investments to get insights!");
+    }
+  }, [holdings, loading]);
 
   return (
     <MainLayout>
@@ -66,10 +137,7 @@ const Investments = () => {
             Track your investments and get AI-powered insights
           </p>
         </div>
-        <Button variant="warm" className="gap-2">
-          <RefreshCw className="h-4 w-4" />
-          Sync Portfolio
-        </Button>
+        <AddInvestmentDialog onInvestmentAdded={loadInvestments} />
       </div>
 
       {/* Summary Cards */}
@@ -93,8 +161,12 @@ const Investments = () => {
         <div className="card-warm p-6 animate-fade-up" style={{ animationDelay: "200ms" }}>
           <BarChart3 className="h-5 w-5 text-accent mb-3" />
           <p className="text-muted-foreground text-sm">Total Returns</p>
-          <p className="font-serif text-2xl font-bold text-success mt-1">
-            +₹{totalReturns.toLocaleString()} ({returnsPercent}%)
+          <p className={cn(
+            "font-serif text-2xl font-bold mt-1",
+            totalReturns >= 0 ? "text-success" : "text-destructive"
+          )}>
+            {totalReturns >= 0 ? "+" : ""}
+            ₹{Math.abs(totalReturns).toLocaleString()} ({returnsPercent}%)
           </p>
         </div>
 
@@ -110,36 +182,36 @@ const Investments = () => {
         {/* Portfolio Growth */}
         <div className="lg:col-span-2 card-warm p-6 animate-fade-up" style={{ animationDelay: "300ms" }}>
           <h3 className="font-serif text-xl font-semibold text-foreground mb-6">
-            Portfolio Growth
+            Portfolio Growth (Estimated)
           </h3>
           <div className="h-64">
             <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={portfolioHistory}>
+              <AreaChart data={mockHistory}>
                 <defs>
                   <linearGradient id="portfolioGradient" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="hsl(var(--primary))" stopOpacity={0.3}/>
-                    <stop offset="95%" stopColor="hsl(var(--primary))" stopOpacity={0}/>
+                    <stop offset="5%" stopColor="hsl(var(--primary))" stopOpacity={0.3} />
+                    <stop offset="95%" stopColor="hsl(var(--primary))" stopOpacity={0} />
                   </linearGradient>
                 </defs>
-                <XAxis 
-                  dataKey="month" 
-                  axisLine={false} 
+                <XAxis
+                  dataKey="month"
+                  axisLine={false}
                   tickLine={false}
                   tick={{ fontSize: 12, fill: 'hsl(var(--muted-foreground))' }}
                 />
-                <YAxis 
-                  axisLine={false} 
+                <YAxis
+                  axisLine={false}
                   tickLine={false}
                   tick={{ fontSize: 12, fill: 'hsl(var(--muted-foreground))' }}
                   tickFormatter={(value) => `₹${value / 1000}k`}
                 />
                 <Tooltip content={<CustomTooltip />} />
-                <Area 
-                  type="monotone" 
-                  dataKey="value" 
-                  stroke="hsl(var(--primary))" 
+                <Area
+                  type="monotone"
+                  dataKey="value"
+                  stroke="hsl(var(--primary))"
                   strokeWidth={2}
-                  fill="url(#portfolioGradient)" 
+                  fill="url(#portfolioGradient)"
                 />
               </AreaChart>
             </ResponsiveContainer>
@@ -151,39 +223,47 @@ const Investments = () => {
           <h3 className="font-serif text-xl font-semibold text-foreground mb-6">
             Asset Allocation
           </h3>
-          <div className="h-48">
-            <ResponsiveContainer width="100%" height="100%">
-              <PieChart>
-                <Pie
-                  data={assetAllocation}
-                  cx="50%"
-                  cy="50%"
-                  innerRadius={50}
-                  outerRadius={70}
-                  paddingAngle={4}
-                  dataKey="value"
-                >
-                  {assetAllocation.map((entry, index) => (
-                    <Cell key={`cell-${index}`} fill={entry.color} />
-                  ))}
-                </Pie>
-              </PieChart>
-            </ResponsiveContainer>
-          </div>
-          <div className="space-y-2 mt-4">
-            {assetAllocation.map((asset) => (
-              <div key={asset.name} className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <div 
-                    className="h-3 w-3 rounded-full" 
-                    style={{ backgroundColor: asset.color }}
-                  />
-                  <span className="text-sm text-muted-foreground">{asset.name}</span>
-                </div>
-                <span className="text-sm font-medium text-foreground">{asset.value}%</span>
+          {assetAllocation.length > 0 ? (
+            <>
+              <div className="h-48">
+                <ResponsiveContainer width="100%" height="100%">
+                  <PieChart>
+                    <Pie
+                      data={assetAllocation}
+                      cx="50%"
+                      cy="50%"
+                      innerRadius={50}
+                      outerRadius={70}
+                      paddingAngle={4}
+                      dataKey="value"
+                    >
+                      {assetAllocation.map((entry, index) => (
+                        <Cell key={`cell-${index}`} fill={entry.color} />
+                      ))}
+                    </Pie>
+                  </PieChart>
+                </ResponsiveContainer>
               </div>
-            ))}
-          </div>
+              <div className="space-y-2 mt-4">
+                {assetAllocation.map((asset) => (
+                  <div key={asset.name} className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <div
+                        className="h-3 w-3 rounded-full"
+                        style={{ backgroundColor: asset.color }}
+                      />
+                      <span className="text-sm text-muted-foreground">{asset.name}</span>
+                    </div>
+                    <span className="text-sm font-medium text-foreground">{asset.percent}%</span>
+                  </div>
+                ))}
+              </div>
+            </>
+          ) : (
+            <div className="flex items-center justify-center h-48 text-muted-foreground text-sm">
+              No assets to display
+            </div>
+          )}
         </div>
       </div>
 
@@ -192,36 +272,40 @@ const Investments = () => {
         {/* Holdings */}
         <div className="lg:col-span-2 card-warm p-6 animate-fade-up" style={{ animationDelay: "400ms" }}>
           <h3 className="font-serif text-xl font-semibold text-foreground mb-6">
-            Top Holdings
+            Holdings
           </h3>
           <div className="space-y-4">
-            {holdings.map((holding) => (
-              <div 
-                key={holding.name}
-                className="flex items-center justify-between p-4 rounded-lg bg-muted/30 hover:bg-muted/50 transition-colors"
-              >
-                <div>
-                  <p className="font-medium text-foreground">{holding.name}</p>
-                  <p className="text-sm text-muted-foreground">{holding.type}</p>
+            {holdings.length === 0 && !loading ? (
+              <div className="text-center py-8 text-muted-foreground">No investments found.</div>
+            ) : (
+              holdings.map((holding) => (
+                <div
+                  key={holding.id}
+                  className="flex items-center justify-between p-4 rounded-lg bg-muted/30 hover:bg-muted/50 transition-colors"
+                >
+                  <div>
+                    <p className="font-medium text-foreground">{holding.name}</p>
+                    <p className="text-sm text-muted-foreground">{holding.type}</p>
+                  </div>
+                  <div className="text-right">
+                    <p className="font-semibold text-foreground">
+                      ₹{holding.current.toLocaleString()}
+                    </p>
+                    <p className={cn(
+                      "text-sm font-medium flex items-center gap-1 justify-end",
+                      holding.change >= 0 ? "text-success" : "text-destructive"
+                    )}>
+                      {holding.change >= 0 ? (
+                        <TrendingUp className="h-3 w-3" />
+                      ) : (
+                        <TrendingDown className="h-3 w-3" />
+                      )}
+                      {holding.change >= 0 ? "+" : ""}{holding.change}%
+                    </p>
+                  </div>
                 </div>
-                <div className="text-right">
-                  <p className="font-semibold text-foreground">
-                    ₹{holding.current.toLocaleString()}
-                  </p>
-                  <p className={cn(
-                    "text-sm font-medium flex items-center gap-1 justify-end",
-                    holding.change >= 0 ? "text-success" : "text-destructive"
-                  )}>
-                    {holding.change >= 0 ? (
-                      <TrendingUp className="h-3 w-3" />
-                    ) : (
-                      <TrendingDown className="h-3 w-3" />
-                    )}
-                    {holding.change >= 0 ? "+" : ""}{holding.change}%
-                  </p>
-                </div>
-              </div>
-            ))}
+              ))
+            )}
           </div>
         </div>
 
@@ -231,37 +315,13 @@ const Investments = () => {
             AI Insights
           </h3>
           <div className="space-y-4">
-            <div className="p-4 rounded-lg bg-success/5 border border-success/20">
-              <div className="flex items-start gap-3">
-                <CheckCircle2 className="h-5 w-5 text-success shrink-0 mt-0.5" />
-                <div>
-                  <p className="font-medium text-foreground">Good Diversification</p>
-                  <p className="text-sm text-muted-foreground mt-1">
-                    Your portfolio is well-balanced across asset classes
-                  </p>
-                </div>
-              </div>
-            </div>
-
-            <div className="p-4 rounded-lg bg-warning/5 border border-warning/20">
-              <div className="flex items-start gap-3">
-                <AlertTriangle className="h-5 w-5 text-warning shrink-0 mt-0.5" />
-                <div>
-                  <p className="font-medium text-foreground">High Stock Exposure</p>
-                  <p className="text-sm text-muted-foreground mt-1">
-                    Consider adding more fixed-income instruments for stability
-                  </p>
-                </div>
-              </div>
-            </div>
-
             <div className="p-4 rounded-lg bg-primary/5 border border-primary/20">
               <div className="flex items-start gap-3">
-                <TrendingUp className="h-5 w-5 text-primary shrink-0 mt-0.5" />
+                <Shield className="h-5 w-5 text-primary shrink-0 mt-0.5" />
                 <div>
-                  <p className="font-medium text-foreground">Growth Potential</p>
+                  <p className="font-medium text-foreground">Portfolio Analysis</p>
                   <p className="text-sm text-muted-foreground mt-1">
-                    Your investments are showing positive momentum
+                    {aiInsight}
                   </p>
                 </div>
               </div>
