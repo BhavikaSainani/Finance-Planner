@@ -29,7 +29,20 @@ const MLPredictions = () => {
         const monthlyData: Record<string, number> = {};
         
         transactions.forEach((tx: any) => {
-          const date = new Date(tx.date?.seconds * 1000 || tx.date);
+          // Handle both createdAt (Firestore Timestamp) and date fields
+          let date: Date;
+          if (tx.createdAt?.seconds) {
+            date = new Date(tx.createdAt.seconds * 1000);
+          } else if (tx.createdAt) {
+            date = new Date(tx.createdAt);
+          } else if (tx.date?.seconds) {
+            date = new Date(tx.date.seconds * 1000);
+          } else if (tx.date) {
+            date = new Date(tx.date);
+          } else {
+            return; // Skip if no valid date
+          }
+          
           const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
           
           if (predictionType === "expense" && tx.amount < 0) {

@@ -37,3 +37,8 @@ export const trainCategorizer = async (data: { description: string; category: st
     throw error;
   }
 };
+
+export const predictFinancialData = async (data: any) => {
+  console.warn("predictFinancialData is not yet implemented on the backend.");
+  return { prediction: 0, confidence: 0 };
+};
