@@ -72,7 +72,7 @@ import {
   Pie,
   PieChart,
   ResponsiveContainer,
-  Tooltip,
+  Tooltip as RechartsTooltip,
   XAxis,
   YAxis,
 } from "recharts";
@@ -925,7 +925,7 @@ const Spending = () => {
                         <Cell key={`cell-${index}`} fill={entry.color} />
                       ))}
                     </Pie>
-                    <Tooltip content={<CustomTooltip />} />
+                    <RechartsTooltip content={<CustomTooltip />} />
                   </PieChart>
                 </ResponsiveContainer>
                 <div className="grid grid-cols-2 gap-2 mt-4">
@@ -975,7 +975,7 @@ const Spending = () => {
                     tick={{ fontSize: 12 }}
                     stroke="hsl(var(--muted-foreground))"
                   />
-                  <Tooltip content={<LineTooltip />} />
+                  <RechartsTooltip content={<LineTooltip />} />
                   <Line
                     type="monotone"
                     dataKey="spending"
