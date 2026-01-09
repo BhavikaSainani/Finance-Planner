@@ -63,15 +63,19 @@ const Goals = () => {
 
   useEffect(() => {
     if (goals.length > 0) {
-      const summary = goals.map(g => `${g.name}: Target ₹${g.target}, Current ₹${g.current}, Status ${g.status} `).join("; ");
-      const prompt = `Review these financial goals and give one strategic tip to improve success probability: ${summary} `;
-
-      import("@/services/aiService").then(async (service) => {
-        const advice = await service.getAIAdvice(prompt);
-        setAiInsight(advice);
+      // Generate local insights directly
+      import("@/services/aiService").then((service) => {
+        const goalData = goals.map(g => ({
+          name: g.name,
+          current: g.current,
+          target: g.target,
+          status: g.status,
+        }));
+        const insight = service.generateGoalInsight(goalData);
+        setAiInsight(insight);
       });
     } else if (!loading) {
-      setAiInsight("Add some goals to get AI insights!");
+      setAiInsight("Add your first financial goal to get personalized recommendations!");
     }
   }, [goals, loading]);
 

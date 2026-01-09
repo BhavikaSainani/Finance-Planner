@@ -3,11 +3,14 @@ import { db } from "@/firebase/firebaseConfig";
 import {
   addDoc,
   collection,
+  deleteDoc,
+  doc,
   getDocs,
   orderBy,
   query,
   Timestamp,
   where,
+  writeBatch,
 } from "firebase/firestore";
 
 /**
@@ -58,4 +61,52 @@ export const addTransaction = async (transaction: {
   });
 
   return docRef.id;
+};
+
+/**
+ * Delete a transaction by ID
+ */
+export const deleteTransaction = async (transactionId: string) => {
+  const user = auth.currentUser;
+  if (!user) throw new Error("User not logged in");
+
+  await deleteDoc(doc(db, "transactions", transactionId));
+  return transactionId;
+};
+
+/**
+ * Delete multiple transactions
+ */
+export const deleteMultipleTransactions = async (transactionIds: string[]) => {
+  const user = auth.currentUser;
+  if (!user) throw new Error("User not logged in");
+
+  const batch = writeBatch(db);
+  
+  transactionIds.forEach((id) => {
+    const docRef = doc(db, "transactions", id);
+    batch.delete(docRef);
+  });
+
+  await batch.commit();
+  return transactionIds;
+};
+
+/**
+ * Delete all transactions for the current user
+ */
+export const deleteAllTransactions = async () => {
+  const user = auth.currentUser;
+  if (!user) throw new Error("User not logged in");
+
+  const transactions = await getUserTransactions(user.uid);
+  const batch = writeBatch(db);
+  
+  transactions.forEach((tx: any) => {
+    const docRef = doc(db, "transactions", tx.id);
+    batch.delete(docRef);
+  });
+
+  await batch.commit();
+  return transactions.length;
 };

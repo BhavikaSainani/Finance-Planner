@@ -3,16 +3,39 @@ import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import UploadStatement from "@/components/UploadStatement";
 import { auth } from "@/firebase/firebaseConfig";
+import { db } from "@/firebase/db";
 import { cn } from "@/lib/utils";
 import { getCategoryColor } from "@/utils/categorize";
 import { onAuthStateChanged } from "firebase/auth";
+import { doc, getDoc, setDoc } from "firebase/firestore";
 import { useEffect, useRef, useState } from "react";
+import { toast } from "sonner";
 
 import {
-  AlertTriangle,
-  ArrowDownRight,
   ArrowUpRight,
   Car,
   Coffee,
@@ -22,10 +45,15 @@ import {
   Home,
   Loader2,
   MoreHorizontal,
+  PiggyBank,
+  Plus,
   ShoppingBag,
   Sparkles,
+  Trash2,
   TrendingUp,
   Upload,
+  Wallet,
+  X,
   Zap,
   ArrowRightLeft,
 } from "lucide-react";
@@ -33,7 +61,6 @@ import {
 import {
   CartesianGrid,
   Cell,
-  Legend,
   Line,
   LineChart,
   Pie,
@@ -44,7 +71,12 @@ import {
   YAxis,
 } from "recharts";
 
-import { getUserTransactions } from "@/services/transactionService";
+import { 
+  getUserTransactions, 
+  deleteTransaction, 
+  deleteAllTransactions,
+  addTransaction 
+} from "@/services/transactionService";
 
 /* ---------------- CATEGORY META ---------------- */
 
@@ -59,6 +91,8 @@ const CATEGORY_META: Record<string, any> = {
   "Education": { icon: GraduationCap, color: "hsl(200, 60%, 45%)", budget: 10000 },
   "Investment": { icon: TrendingUp, color: "hsl(142, 70%, 40%)", budget: 0 },
   "Transfer": { icon: ArrowRightLeft, color: "hsl(210, 50%, 50%)", budget: 0 },
+  "Income": { icon: Wallet, color: "hsl(142, 70%, 45%)", budget: 0 },
+  "Savings": { icon: PiggyBank, color: "hsl(200, 70%, 50%)", budget: 0 },
   "Other": { icon: MoreHorizontal, color: "hsl(0, 0%, 50%)", budget: 5000 },
 };
 
@@ -78,6 +112,11 @@ interface Transaction {
   category: string;
   description: string;
   createdAt: any;
+}
+
+interface FinancialSettings {
+  monthlyIncome: number;
+  monthlySavingsGoal: number;
 }
 
 /* ---------------- CUSTOM TOOLTIP ---------------- */
@@ -119,13 +158,35 @@ const LineTooltip = ({ active, payload, label }: any) => {
 const generateLocalInsight = (
   categoryData: CategoryData[],
   totalSpending: number,
-  totalBudget: number
+  totalBudget: number,
+  income: number,
+  savingsGoal: number
 ): string => {
   if (categoryData.length === 0) {
     return "Upload your bank statement to get personalized spending insights.";
   }
 
   const insights: string[] = [];
+  const actualSavings = income - totalSpending;
+  const savingsRate = income > 0 ? (actualSavings / income) * 100 : 0;
+
+  // Savings analysis
+  if (income > 0) {
+    if (actualSavings >= savingsGoal && savingsGoal > 0) {
+      insights.push(`🎉 Great! You're saving ₹${actualSavings.toLocaleString()} this month, exceeding your goal of ₹${savingsGoal.toLocaleString()}.`);
+    } else if (actualSavings > 0 && savingsGoal > 0) {
+      const shortfall = savingsGoal - actualSavings;
+      insights.push(`You're ₹${shortfall.toLocaleString()} short of your savings goal. Review discretionary spending to close the gap.`);
+    } else if (actualSavings < 0) {
+      insights.push(`⚠️ You're overspending by ₹${Math.abs(actualSavings).toLocaleString()}. Immediate action needed to balance your budget.`);
+    }
+
+    if (savingsRate >= 20) {
+      insights.push(`Excellent savings rate of ${savingsRate.toFixed(0)}%! You're building wealth consistently.`);
+    } else if (savingsRate > 0 && savingsRate < 10) {
+      insights.push(`Your savings rate is ${savingsRate.toFixed(0)}%. Aim for at least 20% to build a strong financial foundation.`);
+    }
+  }
 
   // Find highest spending category
   const sortedBySpending = [...categoryData].sort((a, b) => b.value - a.value);
@@ -157,18 +218,6 @@ const generateLocalInsight = (
     }
   }
 
-  // Find potential savings
-  const entertainmentSpend = categoryData.find((c) => c.name === "Entertainment");
-  const foodSpend = categoryData.find((c) => c.name === "Food & Dining");
-
-  if (entertainmentSpend && entertainmentSpend.value > 5000) {
-    insights.push(`Entertainment spending is ₹${entertainmentSpend.value.toLocaleString()}. Consider free alternatives.`);
-  }
-
-  if (foodSpend && foodSpend.value > 10000) {
-    insights.push(`Food & Dining at ₹${foodSpend.value.toLocaleString()}. Cooking at home could save 30-40%.`);
-  }
-
   return insights.length > 0
     ? insights[Math.floor(Math.random() * insights.length)]
     : "Your spending looks balanced. Keep tracking to maintain good habits!";
@@ -184,8 +233,236 @@ const Spending = () => {
   const [aiInsight, setAiInsight] = useState<string>("Loading insights...");
   const [loadingInsight, setLoadingInsight] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [deleting, setDeleting] = useState<string | null>(null);
+  const [userId, setUserId] = useState<string | null>(null);
+
+  // Financial settings
+  const [financialSettings, setFinancialSettings] = useState<FinancialSettings>({
+    monthlyIncome: 0,
+    monthlySavingsGoal: 0,
+  });
+  const [settingsDialogOpen, setSettingsDialogOpen] = useState(false);
+  const [tempIncome, setTempIncome] = useState("");
+  const [tempSavingsGoal, setTempSavingsGoal] = useState("");
+
+  // Add transaction dialog
+  const [addDialogOpen, setAddDialogOpen] = useState(false);
+  const [newTransaction, setNewTransaction] = useState({
+    description: "",
+    amount: "",
+    category: "Income",
+    type: "income" as "income" | "expense",
+  });
 
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Load financial settings
+  const loadFinancialSettings = async (uid: string) => {
+    try {
+      const userRef = doc(db, "users", uid);
+      const snap = await getDoc(userRef);
+      if (snap.exists() && snap.data().financialSettings) {
+        setFinancialSettings(snap.data().financialSettings);
+      }
+    } catch (error) {
+      console.error("Failed to load financial settings:", error);
+    }
+  };
+
+  // Save financial settings
+  const saveFinancialSettings = async () => {
+    if (!userId) return;
+
+    try {
+      const userRef = doc(db, "users", userId);
+      const newSettings = {
+        monthlyIncome: parseFloat(tempIncome) || 0,
+        monthlySavingsGoal: parseFloat(tempSavingsGoal) || 0,
+      };
+      
+      await setDoc(userRef, { financialSettings: newSettings }, { merge: true });
+      setFinancialSettings(newSettings);
+      setSettingsDialogOpen(false);
+      toast.success("Financial settings saved!");
+      
+      // Refresh data to update insights
+      window.location.reload();
+    } catch (error) {
+      console.error("Failed to save settings:", error);
+      toast.error("Failed to save settings");
+    }
+  };
+
+  // Handle delete transaction
+  const handleDeleteTransaction = async (transactionId: string) => {
+    try {
+      setDeleting(transactionId);
+      await deleteTransaction(transactionId);
+      setRecentTransactions((prev) => prev.filter((tx) => tx.id !== transactionId));
+      toast.success("Transaction deleted");
+      
+      // Refresh data
+      if (userId) {
+        const transactions = await getUserTransactions(userId);
+        processTransactions(transactions);
+      }
+    } catch (error) {
+      console.error("Failed to delete transaction:", error);
+      toast.error("Failed to delete transaction");
+    } finally {
+      setDeleting(null);
+    }
+  };
+
+  // Handle delete all transactions
+  const handleDeleteAllTransactions = async () => {
+    try {
+      setLoading(true);
+      const count = await deleteAllTransactions();
+      toast.success(`Deleted ${count} transactions`);
+      setRecentTransactions([]);
+      setCategoryData([]);
+      setMonthlyTrend([]);
+      setAiInsight("Upload your bank statement to get personalized spending insights.");
+    } catch (error) {
+      console.error("Failed to delete all transactions:", error);
+      toast.error("Failed to delete transactions");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Handle add income/expense
+  const handleAddTransaction = async () => {
+    if (!newTransaction.description || !newTransaction.amount) {
+      toast.error("Please fill all fields");
+      return;
+    }
+
+    try {
+      const amount = parseFloat(newTransaction.amount);
+      await addTransaction({
+        description: newTransaction.description,
+        amount: newTransaction.type === "income" ? amount : -amount,
+        category: newTransaction.type === "income" ? "Income" : newTransaction.category,
+        createdAt: new Date(),
+      });
+
+      toast.success(`${newTransaction.type === "income" ? "Income" : "Expense"} added successfully`);
+      setAddDialogOpen(false);
+      setNewTransaction({ description: "", amount: "", category: "Income", type: "income" });
+      
+      // Refresh data
+      window.location.reload();
+    } catch (error) {
+      console.error("Failed to add transaction:", error);
+      toast.error("Failed to add transaction");
+    }
+  };
+
+  // Process transactions
+  const processTransactions = (transactions: any[]) => {
+    // Store recent transactions (excluding income for display)
+    setRecentTransactions(
+      transactions
+        .filter((tx: any) => tx.category !== "Income")
+        .slice(0, 10)
+        .map((tx: any) => ({
+          id: tx.id,
+          amount: tx.amount,
+          category: tx.category || "Other",
+          description: tx.description || "No description",
+          createdAt: tx.createdAt,
+        }))
+    );
+
+    /* ---------- CATEGORY AGGREGATION (expenses only) ---------- */
+    const categoryMap: Record<string, CategoryData> = {};
+
+    transactions.forEach((tx: any) => {
+      // Skip income entries for spending analysis
+      if (tx.category === "Income" || tx.amount > 0) return;
+      
+      const category = tx.category || "Other";
+      const amount = Math.abs(Number(tx.amount || 0));
+
+      if (!categoryMap[category]) {
+        const meta = CATEGORY_META[category] || CATEGORY_META["Other"];
+        categoryMap[category] = {
+          name: category,
+          value: 0,
+          budget: meta.budget || 0,
+          color: meta.color || getCategoryColor(category),
+          count: 0,
+        };
+      }
+
+      categoryMap[category].value += amount;
+      categoryMap[category].count += 1;
+    });
+
+    const processedCategories = Object.values(categoryMap).sort(
+      (a, b) => b.value - a.value
+    );
+    setCategoryData(processedCategories);
+
+    /* ---------- MONTHLY TREND ---------- */
+    const monthMap: Record<string, number> = {};
+
+    transactions.forEach((tx: any) => {
+      if (!tx.createdAt || tx.category === "Income") return;
+
+      let date: Date;
+      if (tx.createdAt.toDate) {
+        date = tx.createdAt.toDate();
+      } else if (tx.createdAt instanceof Date) {
+        date = tx.createdAt;
+      } else {
+        date = new Date(tx.createdAt);
+      }
+
+      const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
+
+      if (!monthMap[monthKey]) {
+        monthMap[monthKey] = 0;
+      }
+      monthMap[monthKey] += Math.abs(Number(tx.amount || 0));
+    });
+
+    // Sort by date and format for chart
+    const sortedMonths = Object.entries(monthMap)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .slice(-6)
+      .map(([key, value]) => {
+        const [year, month] = key.split("-");
+        const date = new Date(parseInt(year), parseInt(month) - 1);
+        return {
+          month: date.toLocaleString("en-US", { month: "short" }),
+          spending: value,
+        };
+      });
+
+    setMonthlyTrend(sortedMonths);
+
+    /* ---- GENERATE INSIGHT ---- */
+    const totalSpending = processedCategories.reduce((sum, c) => sum + c.value, 0);
+    const totalBudget = processedCategories.reduce((sum, c) => sum + c.budget, 0);
+
+    if (processedCategories.length > 0) {
+      setLoadingInsight(true);
+      const localInsight = generateLocalInsight(
+        processedCategories, 
+        totalSpending, 
+        totalBudget,
+        financialSettings.monthlyIncome,
+        financialSettings.monthlySavingsGoal
+      );
+      setAiInsight(localInsight);
+      setLoadingInsight(false);
+    } else {
+      setAiInsight("Upload your bank statement to get personalized spending insights.");
+    }
+  };
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
@@ -197,123 +474,17 @@ const Spending = () => {
         return;
       }
 
+      setUserId(user.uid);
+
       try {
         setLoading(true);
+        
+        // Load financial settings
+        await loadFinancialSettings(user.uid);
+        
+        // Load transactions
         const transactions = await getUserTransactions(user.uid);
-
-        // Store recent transactions
-        setRecentTransactions(
-          transactions.slice(0, 10).map((tx: any) => ({
-            id: tx.id,
-            amount: tx.amount,
-            category: tx.category || "Other",
-            description: tx.description || "No description",
-            createdAt: tx.createdAt,
-          }))
-        );
-
-        /* ---------- CATEGORY AGGREGATION ---------- */
-        const categoryMap: Record<string, CategoryData> = {};
-
-        transactions.forEach((tx: any) => {
-          const category = tx.category || "Other";
-          const amount = Math.abs(Number(tx.amount || 0));
-
-          if (!categoryMap[category]) {
-            const meta = CATEGORY_META[category] || CATEGORY_META["Other"];
-            categoryMap[category] = {
-              name: category,
-              value: 0,
-              budget: meta.budget || 0,
-              color: meta.color || getCategoryColor(category),
-              count: 0,
-            };
-          }
-
-          categoryMap[category].value += amount;
-          categoryMap[category].count += 1;
-        });
-
-        const processedCategories = Object.values(categoryMap).sort(
-          (a, b) => b.value - a.value
-        );
-        setCategoryData(processedCategories);
-
-        /* ---------- MONTHLY TREND ---------- */
-        const monthMap: Record<string, number> = {};
-
-        transactions.forEach((tx: any) => {
-          if (!tx.createdAt) return;
-
-          let date: Date;
-          if (tx.createdAt.toDate) {
-            date = tx.createdAt.toDate();
-          } else if (tx.createdAt instanceof Date) {
-            date = tx.createdAt;
-          } else {
-            date = new Date(tx.createdAt);
-          }
-
-          const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
-          const monthLabel = date.toLocaleString("en-US", { month: "short", year: "2-digit" });
-
-          if (!monthMap[monthKey]) {
-            monthMap[monthKey] = 0;
-          }
-          monthMap[monthKey] += Math.abs(Number(tx.amount || 0));
-        });
-
-        // Sort by date and format for chart
-        const sortedMonths = Object.entries(monthMap)
-          .sort(([a], [b]) => a.localeCompare(b))
-          .slice(-6) // Last 6 months
-          .map(([key, value]) => {
-            const [year, month] = key.split("-");
-            const date = new Date(parseInt(year), parseInt(month) - 1);
-            return {
-              month: date.toLocaleString("en-US", { month: "short" }),
-              spending: value,
-            };
-          });
-
-        setMonthlyTrend(sortedMonths);
-
-        /* ---- GENERATE INSIGHT ---- */
-        const totalSpending = processedCategories.reduce((sum, c) => sum + c.value, 0);
-        const totalBudget = processedCategories.reduce((sum, c) => sum + c.budget, 0);
-
-        // Try AI service first, fallback to local
-        if (processedCategories.length > 0) {
-          setLoadingInsight(true);
-          
-          // Generate local insight immediately
-          const localInsight = generateLocalInsight(processedCategories, totalSpending, totalBudget);
-          setAiInsight(localInsight);
-          
-          // Try to get AI insight (optional enhancement)
-          try {
-            const summary = processedCategories
-              .slice(0, 5)
-              .map((c) => `${c.name}: ₹${c.value.toLocaleString()}`)
-              .join(", ");
-            const prompt = `Analyze this spending: ${summary}. Total: ₹${totalSpending.toLocaleString()}. Give one brief tip (1-2 sentences).`;
-
-            const service = await import("@/services/aiService");
-            const advice = await service.getAIAdvice(prompt);
-            
-            // Only update if we got a meaningful response
-            if (advice && !advice.includes("Unable to generate") && advice.length > 20) {
-              setAiInsight(advice);
-            }
-          } catch (error) {
-            // Keep local insight on error
-            console.log("Using local insight generation");
-          }
-          
-          setLoadingInsight(false);
-        } else {
-          setAiInsight("Upload your bank statement to get personalized spending insights.");
-        }
+        processTransactions(transactions);
       } catch (error) {
         console.error("Failed to load transactions:", error);
         setAiInsight("Failed to load data. Please try refreshing the page.");
@@ -325,9 +496,29 @@ const Spending = () => {
     return () => unsubscribe();
   }, []);
 
+  // Recalculate insight when settings change
+  useEffect(() => {
+    if (categoryData.length > 0) {
+      const totalSpending = categoryData.reduce((sum, c) => sum + c.value, 0);
+      const totalBudget = categoryData.reduce((sum, c) => sum + c.budget, 0);
+      const localInsight = generateLocalInsight(
+        categoryData, 
+        totalSpending, 
+        totalBudget,
+        financialSettings.monthlyIncome,
+        financialSettings.monthlySavingsGoal
+      );
+      setAiInsight(localInsight);
+    }
+  }, [financialSettings]);
+
   const totalSpending = categoryData.reduce((sum, c) => sum + c.value, 0);
   const totalBudget = categoryData.reduce((sum, c) => sum + c.budget, 0);
   const budgetPercentage = totalBudget > 0 ? (totalSpending / totalBudget) * 100 : 0;
+  const actualSavings = financialSettings.monthlyIncome - totalSpending;
+  const savingsProgress = financialSettings.monthlySavingsGoal > 0 
+    ? (actualSavings / financialSettings.monthlySavingsGoal) * 100 
+    : 0;
 
   const formatDate = (timestamp: any) => {
     if (!timestamp) return "Unknown";
@@ -360,25 +551,254 @@ const Spending = () => {
   return (
     <MainLayout>
       {/* Header */}
-      <div className="flex items-center justify-between mb-8 animate-fade-up">
+      <div className="flex items-center justify-between mb-8 animate-fade-up flex-wrap gap-4">
         <div>
           <h1 className="font-serif text-3xl font-bold">Spending Analyzer</h1>
           <p className="text-muted-foreground mt-2">
-            Understand your spending patterns and optimize your budget
+            Track income, expenses, and savings in one place
           </p>
         </div>
 
-        <Button
-          variant="default"
-          onClick={() => fileInputRef.current?.click()}
-          className="gap-2"
-        >
-          <Upload className="h-4 w-4" />
-          Upload Statement
-        </Button>
+        <div className="flex items-center gap-2 flex-wrap">
+          {/* Add Income/Expense Dialog */}
+          <Dialog open={addDialogOpen} onOpenChange={setAddDialogOpen}>
+            <DialogTrigger asChild>
+              <Button variant="outline" className="gap-2">
+                <Plus className="h-4 w-4" />
+                Add Entry
+              </Button>
+            </DialogTrigger>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>Add Income or Expense</DialogTitle>
+                <DialogDescription>
+                  Manually add an income or expense entry
+                </DialogDescription>
+              </DialogHeader>
+              <div className="space-y-4 py-4">
+                <div className="flex gap-2">
+                  <Button
+                    variant={newTransaction.type === "income" ? "default" : "outline"}
+                    onClick={() => setNewTransaction(prev => ({ ...prev, type: "income", category: "Income" }))}
+                    className="flex-1"
+                  >
+                    <Wallet className="h-4 w-4 mr-2" />
+                    Income
+                  </Button>
+                  <Button
+                    variant={newTransaction.type === "expense" ? "default" : "outline"}
+                    onClick={() => setNewTransaction(prev => ({ ...prev, type: "expense", category: "Shopping" }))}
+                    className="flex-1"
+                  >
+                    <ShoppingBag className="h-4 w-4 mr-2" />
+                    Expense
+                  </Button>
+                </div>
+
+                <div className="space-y-2">
+                  <Label>Description</Label>
+                  <Input
+                    placeholder={newTransaction.type === "income" ? "e.g., Salary, Freelance" : "e.g., Grocery shopping"}
+                    value={newTransaction.description}
+                    onChange={(e) => setNewTransaction(prev => ({ ...prev, description: e.target.value }))}
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label>Amount (₹)</Label>
+                  <Input
+                    type="number"
+                    placeholder="0"
+                    value={newTransaction.amount}
+                    onChange={(e) => setNewTransaction(prev => ({ ...prev, amount: e.target.value }))}
+                  />
+                </div>
+
+                {newTransaction.type === "expense" && (
+                  <div className="space-y-2">
+                    <Label>Category</Label>
+                    <div className="grid grid-cols-3 gap-2">
+                      {["Food & Dining", "Shopping", "Transportation", "Entertainment", "Utilities", "Other"].map((cat) => (
+                        <Button
+                          key={cat}
+                          variant={newTransaction.category === cat ? "default" : "outline"}
+                          size="sm"
+                          onClick={() => setNewTransaction(prev => ({ ...prev, category: cat }))}
+                          className="text-xs"
+                        >
+                          {cat}
+                        </Button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setAddDialogOpen(false)}>
+                  Cancel
+                </Button>
+                <Button onClick={handleAddTransaction}>
+                  Add {newTransaction.type === "income" ? "Income" : "Expense"}
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+
+          {/* Financial Settings Dialog */}
+          <Dialog open={settingsDialogOpen} onOpenChange={setSettingsDialogOpen}>
+            <DialogTrigger asChild>
+              <Button 
+                variant="outline" 
+                className="gap-2"
+                onClick={() => {
+                  setTempIncome(financialSettings.monthlyIncome.toString());
+                  setTempSavingsGoal(financialSettings.monthlySavingsGoal.toString());
+                }}
+              >
+                <Wallet className="h-4 w-4" />
+                Set Income
+              </Button>
+            </DialogTrigger>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>Financial Settings</DialogTitle>
+                <DialogDescription>
+                  Set your monthly income and savings goal for better insights
+                </DialogDescription>
+              </DialogHeader>
+              <div className="space-y-4 py-4">
+                <div className="space-y-2">
+                  <Label htmlFor="income">Monthly Income (₹)</Label>
+                  <Input
+                    id="income"
+                    type="number"
+                    placeholder="85000"
+                    value={tempIncome}
+                    onChange={(e) => setTempIncome(e.target.value)}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="savings">Monthly Savings Goal (₹)</Label>
+                  <Input
+                    id="savings"
+                    type="number"
+                    placeholder="20000"
+                    value={tempSavingsGoal}
+                    onChange={(e) => setTempSavingsGoal(e.target.value)}
+                  />
+                </div>
+              </div>
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setSettingsDialogOpen(false)}>
+                  Cancel
+                </Button>
+                <Button onClick={saveFinancialSettings}>Save Settings</Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+
+          <Button
+            variant="default"
+            onClick={() => fileInputRef.current?.click()}
+            className="gap-2"
+          >
+            <Upload className="h-4 w-4" />
+            Upload Statement
+          </Button>
+
+          {recentTransactions.length > 0 && (
+            <AlertDialog>
+              <AlertDialogTrigger asChild>
+                <Button variant="destructive" size="icon">
+                  <Trash2 className="h-4 w-4" />
+                </Button>
+              </AlertDialogTrigger>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Delete All Transactions?</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    This will permanently delete all your transaction records. This action cannot be undone.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>Cancel</AlertDialogCancel>
+                  <AlertDialogAction onClick={handleDeleteAllTransactions}>
+                    Delete All
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
+          )}
+        </div>
 
         <UploadStatement ref={fileInputRef} />
       </div>
+
+      {/* Income & Savings Summary */}
+      {financialSettings.monthlyIncome > 0 && (
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8 animate-fade-up">
+          <Card>
+            <CardContent className="p-4">
+              <div className="flex items-center gap-3">
+                <div className="p-2 rounded-lg bg-success/10">
+                  <Wallet className="h-5 w-5 text-success" />
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground">Monthly Income</p>
+                  <p className="font-semibold">₹{financialSettings.monthlyIncome.toLocaleString()}</p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardContent className="p-4">
+              <div className="flex items-center gap-3">
+                <div className="p-2 rounded-lg bg-destructive/10">
+                  <ShoppingBag className="h-5 w-5 text-destructive" />
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground">Total Expenses</p>
+                  <p className="font-semibold">₹{totalSpending.toLocaleString()}</p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardContent className="p-4">
+              <div className="flex items-center gap-3">
+                <div className={cn("p-2 rounded-lg", actualSavings >= 0 ? "bg-success/10" : "bg-destructive/10")}>
+                  <PiggyBank className={cn("h-5 w-5", actualSavings >= 0 ? "text-success" : "text-destructive")} />
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground">Actual Savings</p>
+                  <p className={cn("font-semibold", actualSavings >= 0 ? "text-success" : "text-destructive")}>
+                    {actualSavings >= 0 ? "+" : ""}₹{actualSavings.toLocaleString()}
+                  </p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardContent className="p-4">
+              <div className="flex items-center gap-3">
+                <div className="p-2 rounded-lg bg-primary/10">
+                  <TrendingUp className="h-5 w-5 text-primary" />
+                </div>
+                <div className="flex-1">
+                  <p className="text-xs text-muted-foreground">Savings Goal Progress</p>
+                  <div className="flex items-center gap-2">
+                    <Progress value={Math.min(Math.max(savingsProgress, 0), 100)} className="h-2 flex-1" />
+                    <span className="text-xs font-medium">{savingsProgress.toFixed(0)}%</span>
+                  </div>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
 
       {/* Period Selector */}
       <div className="flex gap-2 mb-8 animate-fade-up" style={{ animationDelay: "50ms" }}>
@@ -480,7 +900,6 @@ const Spending = () => {
                     <Tooltip content={<CustomTooltip />} />
                   </PieChart>
                 </ResponsiveContainer>
-                {/* Legend */}
                 <div className="grid grid-cols-2 gap-2 mt-4">
                   {categoryData.slice(0, 6).map((cat) => (
                     <div key={cat.name} className="flex items-center gap-2">
@@ -630,7 +1049,7 @@ const Spending = () => {
                   return (
                     <div
                       key={tx.id}
-                      className="flex items-center justify-between p-3 rounded-lg bg-muted/30 hover:bg-muted/50 transition-colors"
+                      className="flex items-center justify-between p-3 rounded-lg bg-muted/30 hover:bg-muted/50 transition-colors group"
                     >
                       <div className="flex items-center gap-3">
                         <div
@@ -653,9 +1072,24 @@ const Spending = () => {
                           </div>
                         </div>
                       </div>
-                      <p className="font-semibold text-sm shrink-0">
-                        ₹{Math.abs(tx.amount).toLocaleString()}
-                      </p>
+                      <div className="flex items-center gap-2">
+                        <p className="font-semibold text-sm shrink-0">
+                          ₹{Math.abs(tx.amount).toLocaleString()}
+                        </p>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8 opacity-0 group-hover:opacity-100 transition-opacity"
+                          onClick={() => handleDeleteTransaction(tx.id)}
+                          disabled={deleting === tx.id}
+                        >
+                          {deleting === tx.id ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          ) : (
+                            <X className="h-4 w-4 text-destructive" />
+                          )}
+                        </Button>
+                      </div>
                     </div>
                   );
                 })}
@@ -663,7 +1097,7 @@ const Spending = () => {
             ) : (
               <div className="text-center py-8 text-muted-foreground">
                 <p>No transactions yet</p>
-                <p className="text-sm mt-1">Upload a statement to see your transactions</p>
+                <p className="text-sm mt-1">Upload a statement or add entries manually</p>
               </div>
             )}
           </CardContent>
