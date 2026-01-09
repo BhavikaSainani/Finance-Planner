@@ -79,6 +79,13 @@ const Index = () => {
       });
     }
   };
+  const getGreeting = () => {
+    const hour = new Date().getHours();
+
+    if (hour < 12) return "Good Morning";
+    if (hour < 17) return "Good Afternoon";
+    if (hour < 24) return "Good Evening";
+  };
 
   return (
     <MainLayout>
@@ -86,8 +93,9 @@ const Index = () => {
       <div className="mb-8 flex items-center justify-between animate-fade-up">
         <div>
           <h1 className="font-serif text-3xl font-bold text-foreground">
-            Good Morning, <span className="gradient-text">{name}</span>
+            {getGreeting()}, <span className="gradient-text">{name}</span>
           </h1>
+
           <p className="text-muted-foreground mt-2">
             Here's your financial overview for today
           </p>
