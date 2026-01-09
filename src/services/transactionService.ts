@@ -1,5 +1,5 @@
 import { auth } from "@/firebase/auth";
-import { db } from "@/firebase/firestore";
+import { db } from "@/firebase/firebaseConfig";
 import {
   addDoc,
   collection,
@@ -11,23 +11,7 @@ import {
 } from "firebase/firestore";
 
 /**
- * Add a single transaction
- */
-export const addTransaction = async (transaction) => {
-  const user = auth.currentUser;
-  if (!user) throw new Error("User not logged in");
-
-  const docRef = await addDoc(collection(db, "transactions"), {
-    uid: user.uid,
-    ...transaction,
-    createdAt: Timestamp.now(),
-  });
-
-  return docRef.id;
-};
-
-/**
- * Get logged-in user's transactions
+ * Get transactions for logged-in user
  */
 export const getUserTransactions = async () => {
   const user = auth.currentUser;
@@ -45,4 +29,25 @@ export const getUserTransactions = async () => {
     id: doc.id,
     ...doc.data(),
   }));
+};
+
+/**
+ * Add a transaction for logged-in user
+ */
+export const addTransaction = async (transaction: {
+  amount: number;
+  category: string;
+  description?: string;
+  createdAt?: Date;
+}) => {
+  const user = auth.currentUser;
+  if (!user) throw new Error("User not logged in");
+
+  const docRef = await addDoc(collection(db, "transactions"), {
+    uid: user.uid,
+    ...transaction,
+    createdAt: Timestamp.now(),
+  });
+
+  return docRef.id;
 };

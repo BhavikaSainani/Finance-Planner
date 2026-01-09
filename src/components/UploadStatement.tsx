@@ -1,29 +1,52 @@
-import { useToast } from "@/components/ui/use-toast";
+import { addTransaction } from "@/services/transactionService";
+import Papa from "papaparse";
 import { forwardRef } from "react";
 
-const UploadStatement = forwardRef((props, ref) => {
-  const { toast } = useToast();
+const categorizeTransaction = (description: string) => {
+  const d = description.toLowerCase();
+
+  if (d.includes("swiggy") || d.includes("zomato")) return "Food & Dining";
+  if (d.includes("uber") || d.includes("ola")) return "Transportation";
+  if (d.includes("netflix") || d.includes("prime")) return "Entertainment";
+  if (d.includes("electricity") || d.includes("bill")) return "Utilities";
+  if (d.includes("bazaar") || d.includes("mart")) return "Shopping";
+
+  return "Shopping";
+};
+
+const UploadStatement = forwardRef<HTMLInputElement>((_, ref) => {
+  const handleFileUpload = (e: any) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    Papa.parse(file, {
+      header: true,
+      skipEmptyLines: true,
+      complete: async (result) => {
+        for (const row of result.data as any[]) {
+          await addTransaction({
+            amount: Number(row.amount),
+            category: categorizeTransaction(row.description),
+            description: row.description,
+            createdAt: new Date(row.date),
+          });
+        }
+
+        alert("Statement uploaded successfully!");
+        window.location.reload(); // refresh dashboard
+      },
+    });
+  };
 
   return (
     <input
-      ref={ref}
       type="file"
       accept=".csv"
-      className="hidden"
-      onChange={(e) => {
-        const file = e.target.files?.[0];
-        if (!file) return;
-
-        console.log("Uploaded file:", file.name);
-
-        toast({
-          title: "Statement uploaded ✅",
-          description: file.name,
-        });
-      }}
+      ref={ref}
+      hidden
+      onChange={handleFileUpload}
     />
   );
 });
 
-UploadStatement.displayName = "UploadStatement";
 export default UploadStatement;

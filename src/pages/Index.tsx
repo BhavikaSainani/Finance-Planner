@@ -1,8 +1,12 @@
 import { auth } from "@/firebase/auth";
 import { db } from "@/firebase/db";
-import { onAuthStateChanged } from "firebase/auth";
+import { onAuthStateChanged, signOut } from "firebase/auth";
 import { doc, getDoc, setDoc } from "firebase/firestore";
 import { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
+
+import { Button } from "@/components/ui/button";
+import { toast } from "@/components/ui/use-toast";
 
 import { GoalsProgress } from "@/components/dashboard/GoalsProgress";
 import { InvestmentSummary } from "@/components/dashboard/InvestmentSummary";
@@ -14,10 +18,14 @@ import { MainLayout } from "@/components/layout/MainLayout";
 
 const Index = () => {
   const [name, setName] = useState("User");
+  const navigate = useNavigate();
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
-      if (!user) return;
+      if (!user) {
+        navigate("/login");
+        return;
+      }
 
       const userRef = doc(db, "users", user.uid);
       const snap = await getDoc(userRef);
@@ -50,17 +58,57 @@ const Index = () => {
     });
 
     return () => unsubscribe();
-  }, []);
+  }, [navigate]);
+
+  // 🔴 LOGOUT HANDLER
+  const handleLogout = async () => {
+    try {
+      await signOut(auth);
+
+      toast({
+        title: "Logged out 👋",
+        description: "See you again soon!",
+      });
+
+      navigate("/login");
+    } catch (err: any) {
+      toast({
+        variant: "destructive",
+        title: "Logout failed",
+        description: err.message,
+      });
+    }
+  };
+  const getGreeting = () => {
+    const hour = new Date().getHours();
+
+    if (hour < 12) return "Good Morning";
+    if (hour < 17) return "Good Afternoon";
+    if (hour < 24) return "Good Evening";
+  };
 
   return (
     <MainLayout>
-      <div className="mb-8 animate-fade-up">
-        <h1 className="font-serif text-3xl font-bold text-foreground">
-          Good Morning, <span className="gradient-text">{name}</span>
-        </h1>
-        <p className="text-muted-foreground mt-2">
-          Here's your financial overview for today
-        </p>
+      {/* HEADER */}
+      <div className="mb-8 flex items-center justify-between animate-fade-up">
+        <div>
+          <h1 className="font-serif text-3xl font-bold text-foreground">
+            {getGreeting()}, <span className="gradient-text">{name}</span>
+          </h1>
+
+          <p className="text-muted-foreground mt-2">
+            Here's your financial overview for today
+          </p>
+        </div>
+
+        {/* LOGOUT BUTTON */}
+        <Button
+          variant="outline"
+          onClick={handleLogout}
+          className="h-9"
+        >
+          Logout
+        </Button>
       </div>
 
       <QuickStats />
