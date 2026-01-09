@@ -7,14 +7,20 @@ import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 
 import Alerts from "./pages/Alerts";
+import DebtRepayment from "./pages/DebtRepayment";
 import Goals from "./pages/Goals";
 import Index from "./pages/Index";
 import Investments from "./pages/Investments";
+import LoanPrepayment from "./pages/LoanPrepayment";
 import Login from "./pages/Login";
+import MLPredictions from "./pages/MLPredictions";
 import NotFound from "./pages/NotFound";
+import SentimentAnalysis from "./pages/SentimentAnalysis";
+import Settings from "./pages/Settings";
 import Signup from "./pages/Signup";
 import Simulator from "./pages/Simulator";
 import Spending from "./pages/Spending";
+import StockForecast from "./pages/StockForecast";
 
 const queryClient = new QueryClient();
 
@@ -78,10 +84,64 @@ const App = () => (
           />
 
           <Route
+            path="/loan-prepayment"
+            element={
+              <ProtectedRoute>
+                <LoanPrepayment />
+              </ProtectedRoute>
+            }
+          />
+
+          <Route
+            path="/debt-repayment"
+            element={
+              <ProtectedRoute>
+                <DebtRepayment />
+              </ProtectedRoute>
+            }
+          />
+
+          <Route
+            path="/sentiment-analysis"
+            element={
+              <ProtectedRoute>
+                <SentimentAnalysis />
+              </ProtectedRoute>
+            }
+          />
+
+          <Route
+            path="/stock-forecast"
+            element={
+              <ProtectedRoute>
+                <StockForecast />
+              </ProtectedRoute>
+            }
+          />
+
+          <Route
+            path="/ml-predictions"
+            element={
+              <ProtectedRoute>
+                <MLPredictions />
+              </ProtectedRoute>
+            }
+          />
+
+          <Route
             path="/alerts"
             element={
               <ProtectedRoute>
                 <Alerts />
+              </ProtectedRoute>
+            }
+          />
+
+          <Route
+            path="/settings"
+            element={
+              <ProtectedRoute>
+                <Settings />
               </ProtectedRoute>
             }
           />

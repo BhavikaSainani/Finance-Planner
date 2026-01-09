@@ -8,8 +8,12 @@ import {
   Settings,
   Sparkles,
   Target,
+  TrendingDown,
   TrendingUp,
-  Wallet
+  Wallet,
+  Zap,
+  Brain,
+  BarChart3
 } from "lucide-react";
 import { useState } from "react";
 import { Link, useLocation } from "react-router-dom";
@@ -20,6 +24,11 @@ const navItems = [
   { icon: Target, label: "Goals", path: "/goals" },
   { icon: TrendingUp, label: "Investments", path: "/investments" },
   { icon: Sparkles, label: "Future You", path: "/simulator" },
+  { icon: TrendingDown, label: "Loan Prepayment", path: "/loan-prepayment" },
+  { icon: Zap, label: "Debt Optimizer", path: "/debt-repayment" },
+  { icon: Brain, label: "Sentiment Analysis", path: "/sentiment-analysis" },
+  { icon: BarChart3, label: "Stock Forecast", path: "/stock-forecast" },
+  { icon: Sparkles, label: "ML Predictions", path: "/ml-predictions" },
   { icon: Bell, label: "Alerts", path: "/alerts" },
 ];
 
