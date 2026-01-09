@@ -163,8 +163,9 @@ const UploadStatement = forwardRef<HTMLInputElement, UploadStatementProps>(
 
             for (const tx of transactions) {
               try {
+                // Save expenses as negative amounts to distinguish from income
                 await addTransaction({
-                  amount: tx.amount,
+                  amount: -Math.abs(tx.amount), // Negative for expenses
                   category: tx.category,
                   description: tx.description,
                   createdAt: tx.date,
