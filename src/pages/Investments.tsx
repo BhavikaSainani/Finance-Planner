@@ -110,18 +110,20 @@ const Investments = () => {
 
   useEffect(() => {
     if (holdings.length > 0) {
-      const summary = `Total Invested: ₹${totalInvested}, Current Value: ₹${currentValue}, Returns: ${returnsPercent}%. ` +
-        `Asset Allocation: ${assetAllocation.map(a => `${a.name} ${a.percent}%`).join(", ")}. ` +
-        `Top Holdings: ${holdings.slice(0, 5).map(h => `${h.name} (${h.type})`).join(", ")}.`;
-
-      const prompt = `Analyze this investment portfolio and provide a brief performance review and one suggestion: ${summary}`;
-
-      import("@/services/aiService").then(async (service) => {
-        const advice = await service.getAIAdvice(prompt);
-        setAiInsight(advice);
+      // Generate local insights directly
+      import("@/services/aiService").then((service) => {
+        const investmentData = holdings.map(h => ({
+          name: h.name,
+          type: h.type,
+          invested: h.invested,
+          current: h.current,
+          change: h.change,
+        }));
+        const insight = service.generateInvestmentInsight(investmentData);
+        setAiInsight(insight);
       });
     } else if (!loading) {
-      setAiInsight("Add some investments to get insights!");
+      setAiInsight("Start tracking your investments to get portfolio analysis and recommendations!");
     }
   }, [holdings, loading]);
 

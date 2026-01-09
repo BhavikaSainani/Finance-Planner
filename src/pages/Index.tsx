@@ -112,7 +112,7 @@ const Index = () => {
       </div>
 
       <QuickStats />
-      <WellBeingScore score={72} previousScore={68} />
+      <WellBeingScore />
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
         <SpendingChart />

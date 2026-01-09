@@ -15,12 +15,10 @@ import LoanPrepayment from "./pages/LoanPrepayment";
 import Login from "./pages/Login";
 import MLPredictions from "./pages/MLPredictions";
 import NotFound from "./pages/NotFound";
-import SentimentAnalysis from "./pages/SentimentAnalysis";
 import Settings from "./pages/Settings";
 import Signup from "./pages/Signup";
 import Simulator from "./pages/Simulator";
 import Spending from "./pages/Spending";
-import StockForecast from "./pages/StockForecast";
 
 const queryClient = new QueryClient();
 
@@ -97,24 +95,6 @@ const App = () => (
             element={
               <ProtectedRoute>
                 <DebtRepayment />
-              </ProtectedRoute>
-            }
-          />
-
-          <Route
-            path="/sentiment-analysis"
-            element={
-              <ProtectedRoute>
-                <SentimentAnalysis />
-              </ProtectedRoute>
-            }
-          />
-
-          <Route
-            path="/stock-forecast"
-            element={
-              <ProtectedRoute>
-                <StockForecast />
               </ProtectedRoute>
             }
           />

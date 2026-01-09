@@ -12,7 +12,6 @@ import {
   TrendingUp,
   Wallet,
   Zap,
-  Brain,
   BarChart3
 } from "lucide-react";
 import { useState } from "react";
@@ -26,9 +25,7 @@ const navItems = [
   { icon: Sparkles, label: "Future You", path: "/simulator" },
   { icon: TrendingDown, label: "Loan Prepayment", path: "/loan-prepayment" },
   { icon: Zap, label: "Debt Optimizer", path: "/debt-repayment" },
-  { icon: Brain, label: "Sentiment Analysis", path: "/sentiment-analysis" },
-  { icon: BarChart3, label: "Stock Forecast", path: "/stock-forecast" },
-  { icon: Sparkles, label: "ML Predictions", path: "/ml-predictions" },
+  { icon: BarChart3, label: "ML Predictions", path: "/ml-predictions" },
   { icon: Bell, label: "Alerts", path: "/alerts" },
 ];
 

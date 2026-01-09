@@ -1,5 +1,10 @@
-import { Wallet, TrendingUp, Target, PiggyBank } from "lucide-react";
+import { Wallet, TrendingUp, Target, PiggyBank, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useEffect, useState } from "react";
+import { auth } from "@/firebase/auth";
+import { onAuthStateChanged } from "firebase/auth";
+import { getUserTransactions } from "@/services/transactionService";
+import { getGoals } from "@/services/goalsService";
 
 interface StatCardProps {
   icon: React.ElementType;
@@ -8,9 +13,10 @@ interface StatCardProps {
   change?: string;
   positive?: boolean;
   delay?: number;
+  loading?: boolean;
 }
 
-function StatCard({ icon: Icon, label, value, change, positive, delay = 0 }: StatCardProps) {
+function StatCard({ icon: Icon, label, value, change, positive, delay = 0, loading }: StatCardProps) {
   return (
     <div 
       className="card-warm p-6 animate-fade-up"
@@ -20,7 +26,7 @@ function StatCard({ icon: Icon, label, value, change, positive, delay = 0 }: Sta
         <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-primary/10">
           <Icon className="h-6 w-6 text-primary" />
         </div>
-        {change && (
+        {change && !loading && (
           <span className={cn(
             "text-sm font-medium px-2 py-1 rounded-full",
             positive ? "bg-success/10 text-success" : "bg-destructive/10 text-destructive"
@@ -31,48 +37,118 @@ function StatCard({ icon: Icon, label, value, change, positive, delay = 0 }: Sta
       </div>
       <div className="mt-4">
         <p className="text-sm text-muted-foreground">{label}</p>
-        <p className="mt-1 font-serif text-2xl font-semibold text-foreground">{value}</p>
+        {loading ? (
+          <div className="flex items-center gap-2 mt-1">
+            <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+          </div>
+        ) : (
+          <p className="mt-1 font-serif text-2xl font-semibold text-foreground">{value}</p>
+        )}
       </div>
     </div>
   );
 }
 
 export function QuickStats() {
-  const stats = [
+  const [loading, setLoading] = useState(true);
+  const [stats, setStats] = useState({
+    totalSpending: 0,
+    monthlyIncome: 85000, // Default - could be from user settings
+    savings: 0,
+    goalsProgress: 0,
+  });
+
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, async (user) => {
+      if (!user) {
+        setLoading(false);
+        return;
+      }
+
+      try {
+        // Fetch transactions
+        const transactions = await getUserTransactions(user.uid);
+        
+        // Calculate this month's spending
+        const now = new Date();
+        const thisMonth = now.getMonth();
+        const thisYear = now.getFullYear();
+        
+        let monthlySpending = 0;
+        transactions.forEach((tx: any) => {
+          let date: Date;
+          if (tx.createdAt?.toDate) {
+            date = tx.createdAt.toDate();
+          } else if (tx.createdAt instanceof Date) {
+            date = tx.createdAt;
+          } else {
+            date = new Date(tx.createdAt);
+          }
+          
+          if (date.getMonth() === thisMonth && date.getFullYear() === thisYear) {
+            monthlySpending += Math.abs(Number(tx.amount || 0));
+          }
+        });
+
+        // Fetch goals
+        const goals = await getGoals();
+        const totalSaved = goals.reduce((sum: number, g: any) => sum + (g.current || 0), 0);
+        const totalTarget = goals.reduce((sum: number, g: any) => sum + (g.target || 0), 0);
+        const goalsProgress = totalTarget > 0 ? Math.round((totalSaved / totalTarget) * 100) : 0;
+
+        // Calculate savings (income - spending)
+        const income = 85000; // This could come from user settings
+        const savings = Math.max(0, income - monthlySpending);
+
+        setStats({
+          totalSpending: monthlySpending,
+          monthlyIncome: income,
+          savings: savings,
+          goalsProgress: goalsProgress,
+        });
+      } catch (error) {
+        console.error("Failed to load stats:", error);
+      } finally {
+        setLoading(false);
+      }
+    });
+
+    return () => unsubscribe();
+  }, []);
+
+  const displayStats = [
     { 
       icon: Wallet, 
-      label: "Total Balance", 
-      value: "₹4,52,840", 
-      change: "+12.5%", 
-      positive: true 
+      label: "This Month's Spending", 
+      value: `₹${stats.totalSpending.toLocaleString()}`, 
+      change: stats.totalSpending > 50000 ? "High" : "Normal",
+      positive: stats.totalSpending <= 50000
     },
     { 
       icon: TrendingUp, 
       label: "Monthly Income", 
-      value: "₹85,000", 
-      change: "+8.2%", 
-      positive: true 
+      value: `₹${stats.monthlyIncome.toLocaleString()}`, 
     },
     { 
       icon: PiggyBank, 
-      label: "This Month's Savings", 
-      value: "₹24,500", 
-      change: "+15.3%", 
-      positive: true 
+      label: "Estimated Savings", 
+      value: `₹${stats.savings.toLocaleString()}`, 
+      change: stats.savings > 15000 ? "+Good" : "Low",
+      positive: stats.savings > 15000
     },
     { 
       icon: Target, 
       label: "Goals Progress", 
-      value: "68%", 
-      change: "+5.2%", 
-      positive: true 
+      value: `${stats.goalsProgress}%`, 
+      change: stats.goalsProgress >= 50 ? "On Track" : "Behind",
+      positive: stats.goalsProgress >= 50
     },
   ];
 
   return (
-    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-      {stats.map((stat, index) => (
-        <StatCard key={stat.label} {...stat} delay={index * 100} />
+    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+      {displayStats.map((stat, index) => (
+        <StatCard key={stat.label} {...stat} delay={index * 100} loading={loading} />
       ))}
     </div>
   );
