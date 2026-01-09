@@ -6,8 +6,7 @@ import { Switch } from "@/components/ui/switch";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { auth } from "@/firebase/auth";
-import { db } from "@/firebase/db";
+import { auth, db } from "@/firebase/firebaseConfig";
 import { onAuthStateChanged, signOut, updateProfile, updateEmail, EmailAuthProvider, reauthenticateWithCredential } from "firebase/auth";
 import { doc, getDoc, setDoc, updateDoc } from "firebase/firestore";
 import { useEffect, useState } from "react";
@@ -122,8 +121,8 @@ const Settings = () => {
         name: userData.name || currentUser.displayName || "",
         email: currentUser.email || "",
         photoURL: currentUser.photoURL || "",
-        createdAt: userData.createdAt?.toDate?.() || currentUser.metadata.creationTime,
-        lastLogin: currentUser.metadata.lastSignInTime,
+        createdAt: userData.createdAt?.toDate?.() || (currentUser.metadata.creationTime ? new Date(currentUser.metadata.creationTime) : new Date()),
+        lastLogin: currentUser.metadata.lastSignInTime ? new Date(currentUser.metadata.lastSignInTime) : undefined,
       };
 
       setProfile(profileData);
@@ -148,19 +147,19 @@ const Settings = () => {
         provider: providerId === "google.com" ? "Google" : "Email & Password",
         lastLogin: currentUser.metadata.lastSignInTime
           ? new Date(currentUser.metadata.lastSignInTime).toLocaleDateString("en-IN", {
-              day: "numeric",
-              month: "long",
-              year: "numeric",
-              hour: "2-digit",
-              minute: "2-digit",
-            })
+            day: "numeric",
+            month: "long",
+            year: "numeric",
+            hour: "2-digit",
+            minute: "2-digit",
+          })
           : "Unknown",
         accountCreated: currentUser.metadata.creationTime
           ? new Date(currentUser.metadata.creationTime).toLocaleDateString("en-IN", {
-              day: "numeric",
-              month: "long",
-              year: "numeric",
-            })
+            day: "numeric",
+            month: "long",
+            year: "numeric",
+          })
           : "Unknown",
       });
 

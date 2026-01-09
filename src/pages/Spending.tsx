@@ -71,12 +71,13 @@ import {
   YAxis,
 } from "recharts";
 
-import { 
-  getUserTransactions, 
-  deleteTransaction, 
+import {
+  getUserTransactions,
+  deleteTransaction,
   deleteAllTransactions,
-  addTransaction 
+  addTransaction,
 } from "@/services/transactionService";
+import { categorizeTransaction } from "@/services/mlService";
 
 /* ---------------- CATEGORY META ---------------- */
 
@@ -279,12 +280,12 @@ const Spending = () => {
         monthlyIncome: parseFloat(tempIncome) || 0,
         monthlySavingsGoal: parseFloat(tempSavingsGoal) || 0,
       };
-      
+
       await setDoc(userRef, { financialSettings: newSettings }, { merge: true });
       setFinancialSettings(newSettings);
       setSettingsDialogOpen(false);
       toast.success("Financial settings saved!");
-      
+
       // Refresh data to update insights
       window.location.reload();
     } catch (error) {
@@ -300,7 +301,7 @@ const Spending = () => {
       await deleteTransaction(transactionId);
       setRecentTransactions((prev) => prev.filter((tx) => tx.id !== transactionId));
       toast.success("Transaction deleted");
-      
+
       // Refresh data
       if (userId) {
         const transactions = await getUserTransactions(userId);
@@ -332,6 +333,27 @@ const Spending = () => {
     }
   };
 
+
+  // ML Category Prediction
+  const predictCategory = async (description: string) => {
+    if (!description || newTransaction.type === "income") return;
+
+    try {
+      const result = await categorizeTransaction(description);
+      const predicted = result.category;
+
+      // Simple mapping check - assuming backend returns valid keys or close enough
+      // In a real app, we might need a fuzzy matcher or strict mapping
+      if (CATEGORY_META[predicted] || predicted === "Other") {
+        setNewTransaction(prev => ({ ...prev, category: predicted }));
+        toast.success(`Category auto-detected: ${predicted}`);
+      }
+    } catch (error) {
+      console.error("ML prediction failed:", error);
+      // Fail silently, user can select manually
+    }
+  };
+
   // Handle add income/expense
   const handleAddTransaction = async () => {
     if (!newTransaction.description || !newTransaction.amount) {
@@ -351,7 +373,7 @@ const Spending = () => {
       toast.success(`${newTransaction.type === "income" ? "Income" : "Expense"} added successfully`);
       setAddDialogOpen(false);
       setNewTransaction({ description: "", amount: "", category: "Income", type: "income" });
-      
+
       // Refresh data
       window.location.reload();
     } catch (error) {
@@ -382,7 +404,7 @@ const Spending = () => {
     transactions.forEach((tx: any) => {
       // Skip income entries for spending analysis
       if (tx.category === "Income" || tx.amount > 0) return;
-      
+
       const category = tx.category || "Other";
       const amount = Math.abs(Number(tx.amount || 0));
 
@@ -451,8 +473,8 @@ const Spending = () => {
     if (processedCategories.length > 0) {
       setLoadingInsight(true);
       const localInsight = generateLocalInsight(
-        processedCategories, 
-        totalSpending, 
+        processedCategories,
+        totalSpending,
         totalBudget,
         financialSettings.monthlyIncome,
         financialSettings.monthlySavingsGoal
@@ -478,10 +500,10 @@ const Spending = () => {
 
       try {
         setLoading(true);
-        
+
         // Load financial settings
         await loadFinancialSettings(user.uid);
-        
+
         // Load transactions
         const transactions = await getUserTransactions(user.uid);
         processTransactions(transactions);
@@ -502,8 +524,8 @@ const Spending = () => {
       const totalSpending = categoryData.reduce((sum, c) => sum + c.value, 0);
       const totalBudget = categoryData.reduce((sum, c) => sum + c.budget, 0);
       const localInsight = generateLocalInsight(
-        categoryData, 
-        totalSpending, 
+        categoryData,
+        totalSpending,
         totalBudget,
         financialSettings.monthlyIncome,
         financialSettings.monthlySavingsGoal
@@ -516,13 +538,13 @@ const Spending = () => {
   const totalBudget = categoryData.reduce((sum, c) => sum + c.budget, 0);
   const budgetPercentage = totalBudget > 0 ? (totalSpending / totalBudget) * 100 : 0;
   const actualSavings = financialSettings.monthlyIncome - totalSpending;
-  const savingsProgress = financialSettings.monthlySavingsGoal > 0 
-    ? (actualSavings / financialSettings.monthlySavingsGoal) * 100 
+  const savingsProgress = financialSettings.monthlySavingsGoal > 0
+    ? (actualSavings / financialSettings.monthlySavingsGoal) * 100
     : 0;
 
   const formatDate = (timestamp: any) => {
     if (!timestamp) return "Unknown";
-    
+
     let date: Date;
     if (timestamp.toDate) {
       date = timestamp.toDate();
@@ -601,6 +623,7 @@ const Spending = () => {
                     placeholder={newTransaction.type === "income" ? "e.g., Salary, Freelance" : "e.g., Grocery shopping"}
                     value={newTransaction.description}
                     onChange={(e) => setNewTransaction(prev => ({ ...prev, description: e.target.value }))}
+                    onBlur={() => predictCategory(newTransaction.description)}
                   />
                 </div>
 
@@ -647,8 +670,8 @@ const Spending = () => {
           {/* Financial Settings Dialog */}
           <Dialog open={settingsDialogOpen} onOpenChange={setSettingsDialogOpen}>
             <DialogTrigger asChild>
-              <Button 
-                variant="outline" 
+              <Button
+                variant="outline"
                 className="gap-2"
                 onClick={() => {
                   setTempIncome(financialSettings.monthlyIncome.toString());

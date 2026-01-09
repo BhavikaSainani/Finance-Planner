@@ -19,6 +19,9 @@ try:
     from sklearn.preprocessing import StandardScaler
     import pickle
     SKLEARN_AVAILABLE = True
+    from sklearn.feature_extraction.text import CountVectorizer
+    from sklearn.naive_bayes import MultinomialNB
+    from sklearn.pipeline import make_pipeline
 except ImportError:
     SKLEARN_AVAILABLE = False
 
@@ -57,6 +60,113 @@ class FinancialDataResponse(BaseModel):
     predictions: List[float]
     trends: Dict[str, Any]
     insights: List[str]
+
+
+class CategorizationRequest(BaseModel):
+    description: str
+    amount: Optional[float] = None
+
+
+class CategorizationResponse(BaseModel):
+    category: str
+    confidence: float
+    description: str
+
+
+class TrainCategorizerRequest(BaseModel):
+    data: List[Dict[str, str]]  # List of {"description": "...", "category": "..."}
+
+
+class TrainCategorizerResponse(BaseModel):
+    success: bool
+    message: str
+    sample_count: int
+
+
+# Global Categorizer Instance
+class ExpenseCategorizer:
+    def __init__(self):
+        self.pipeline = None
+        self.is_trained = False
+        
+    def train_default(self):
+        if not SKLEARN_AVAILABLE:
+            return
+            
+        # Seed data for cold start
+        data = [
+            ("Uber", "Transport"),
+            ("Lyft", "Transport"),
+            ("Taxi", "Transport"),
+            ("Train", "Transport"),
+            ("Bus", "Transport"),
+            ("Gas Station", "Transport"),
+            
+            ("grocery", "Food"),
+            ("supermarket", "Food"),
+            ("restaurant", "Food"),
+            ("coffee", "Food"),
+            ("burger", "Food"),
+            ("pizza", "Food"),
+            ("dinner", "Food"),
+            ("lunch", "Food"),
+            
+            ("netflix", "Entertainment"),
+            ("spotify", "Entertainment"),
+            ("cinema", "Entertainment"),
+            ("movie", "Entertainment"),
+            ("game", "Entertainment"),
+            
+            ("salary", "Income"),
+            ("paycheck", "Income"),
+            ("deposit", "Income"),
+            
+            ("rent", "Housing"),
+            ("mortgage", "Housing"),
+            ("electric", "Utilities"),
+            ("water", "Utilities"),
+            ("internet", "Utilities"),
+            
+            ("amazon", "Shopping"),
+            ("store", "Shopping"),
+            ("clothing", "Shopping"),
+            ("shoes", "Shopping"),
+            
+            ("hospital", "Health"),
+            ("doctor", "Health"),
+            ("pharmacy", "Health"),
+            ("gym", "Health")
+        ]
+        
+        descriptions, categories = zip(*data)
+        self.train(list(descriptions), list(categories))
+
+    def train(self, X, y):
+        if not SKLEARN_AVAILABLE:
+            return
+            
+        self.pipeline = make_pipeline(CountVectorizer(stop_words='english'), MultinomialNB())
+        self.pipeline.fit(X, y)
+        self.is_trained = True
+
+    def predict(self, text):
+        if not self.is_trained or not self.pipeline:
+            return "Uncategorized", 0.0
+        
+        try:
+            category = self.pipeline.predict([text])[0]
+            confidence = float(np.max(self.pipeline.predict_proba([text])[0]))
+            return category, confidence
+        except Exception:
+            return "Uncategorized", 0.0
+
+# Initialize and train default
+expense_categorizer = ExpenseCategorizer()
+if SKLEARN_AVAILABLE:
+    try:
+        expense_categorizer.train_default()
+    except Exception as e:
+        print(f"Failed to initialize categorizer: {e}")
 
 
 @router.post("/predict", response_model=PredictionResponse)
@@ -207,6 +317,62 @@ async def predict_financial_data(request: FinancialDataRequest):
         raise HTTPException(status_code=500, detail=f"Error predicting financial data: {str(e)}")
 
 
+@router.post("/categorize", response_model=CategorizationResponse)
+async def categorize_transaction(request: CategorizationRequest):
+    """
+    Categorize a transaction based on its description
+    """
+    if not SKLEARN_AVAILABLE:
+        raise HTTPException(
+            status_code=501,
+            detail="scikit-learn is not available"
+        )
+    
+    if not expense_categorizer.is_trained:
+         # Try to train default if not trained
+        try:
+            expense_categorizer.train_default()
+        except:
+            raise HTTPException(status_code=500, detail="Model is not trained and default training failed")
+
+    category, confidence = expense_categorizer.predict(request.description)
+    
+    return CategorizationResponse(
+        category=category,
+        confidence=confidence,
+        description=request.description
+    )
+
+
+@router.post("/train-categorizer", response_model=TrainCategorizerResponse)
+async def train_categorizer(request: TrainCategorizerRequest):
+    """
+    Retrain the categorization model with new data
+    """
+    if not SKLEARN_AVAILABLE:
+         raise HTTPException(
+            status_code=501,
+            detail="scikit-learn is not available"
+        )
+        
+    try:
+        descriptions = [item["description"] for item in request.data]
+        categories = [item["category"] for item in request.data]
+        
+        if not descriptions:
+             raise HTTPException(status_code=400, detail="No training data provided")
+             
+        expense_categorizer.train(descriptions, categories)
+        
+        return TrainCategorizerResponse(
+            success=True,
+            message="Model successfully retrained",
+            sample_count=len(descriptions)
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Training failed: {str(e)}")
+
+
 @router.get("/models")
 async def list_available_models():
     """
@@ -228,6 +394,11 @@ async def list_available_models():
                 "name": "financial_prediction",
                 "description": "Financial data prediction",
                 "endpoint": "/api/ml/financial-prediction"
+            },
+            {
+                "name": "expense_categorizer",
+                "description": "Transaction categorization",
+                "endpoint": "/api/ml/categorize"
             }
         ],
         "sklearn_available": SKLEARN_AVAILABLE

@@ -1,6 +1,8 @@
 @echo off
 REM Start FastAPI backend server for Windows
 
+
+cd /d "%~dp0"
 echo Starting Finance Planner Backend API...
 
 REM Check if virtual environment exists

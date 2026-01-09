@@ -1,141 +1,39 @@
-/**
- * Machine Learning Service
- * Handles communication with FastAPI backend for scikit-learn models
- */
+import axios from "axios";
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
+// Base URL for the local Python backend
+const API_URL = "http://localhost:8000/api/ml";
 
-export interface PredictionRequest {
-  features: number[][];
-  model_type?: "linear" | "random_forest";
+export interface CategorizationResponse {
+  category: string;
+  confidence: number;
+  description: string;
 }
 
-export interface PredictionResponse {
-  predictions: number[];
-  model_type: string;
-  confidence?: number;
-}
-
-export interface TrainModelRequest {
-  X: number[][];
-  y: number[];
-  model_type?: "linear" | "random_forest";
-}
-
-export interface TrainModelResponse {
-  success: boolean;
-  model_type: string;
-  score?: number;
-  message: string;
-}
-
-export interface FinancialDataRequest {
-  data: Array<Record<string, any>>;
-  prediction_type: "expense" | "income" | "savings";
-}
-
-export interface FinancialDataResponse {
-  predictions: number[];
-  trends: {
-    direction: string;
-    average_change: number;
-    current_value: number;
-  };
-  insights: string[];
-}
-
-/**
- * Make predictions using ML models
- */
-export const makePrediction = async (
-  request: PredictionRequest
-): Promise<PredictionResponse> => {
+export const categorizeTransaction = async (
+  description: string,
+  amount?: number
+): Promise<CategorizationResponse> => {
   try {
-    const response = await fetch(`${API_BASE_URL}/api/ml/predict`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(request),
+    const response = await axios.post(`${API_URL}/categorize`, {
+      description,
+      amount
     });
-
-    if (!response.ok) {
-      throw new Error(`Error: ${response.statusText}`);
-    }
-
-    return await response.json();
+    return response.data;
   } catch (error) {
-    console.error("Failed to make prediction:", error);
+    console.error("Failed to categorize transaction:", error);
+    // Fallback or rethrow
     throw error;
   }
 };
 
-/**
- * Train a machine learning model
- */
-export const trainModel = async (
-  request: TrainModelRequest
-): Promise<TrainModelResponse> => {
+export const trainCategorizer = async (data: { description: string; category: string }[]) => {
   try {
-    const response = await fetch(`${API_BASE_URL}/api/ml/train`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(request),
+    const response = await axios.post(`${API_URL}/train-categorizer`, {
+      data
     });
-
-    if (!response.ok) {
-      throw new Error(`Error: ${response.statusText}`);
-    }
-
-    return await response.json();
+    return response.data;
   } catch (error) {
-    console.error("Failed to train model:", error);
-    throw error;
-  }
-};
-
-/**
- * Predict financial data (expenses, income, savings)
- */
-export const predictFinancialData = async (
-  request: FinancialDataRequest
-): Promise<FinancialDataResponse> => {
-  try {
-    const response = await fetch(`${API_BASE_URL}/api/ml/financial-prediction`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(request),
-    });
-
-    if (!response.ok) {
-      throw new Error(`Error: ${response.statusText}`);
-    }
-
-    return await response.json();
-  } catch (error) {
-    console.error("Failed to predict financial data:", error);
-    throw error;
-  }
-};
-
-/**
- * List available ML models
- */
-export const listMLModels = async () => {
-  try {
-    const response = await fetch(`${API_BASE_URL}/api/ml/models`);
-
-    if (!response.ok) {
-      throw new Error(`Error: ${response.statusText}`);
-    }
-
-    return await response.json();
-  } catch (error) {
-    console.error("Failed to list models:", error);
+    console.error("Failed to train categorizer:", error);
     throw error;
   }
 };
