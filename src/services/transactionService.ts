@@ -12,14 +12,15 @@ import {
 
 /**
  * Get transactions for logged-in user
+ * @param uid - Optional user ID (uses current user if not provided)
  */
-export const getUserTransactions = async () => {
-  const user = auth.currentUser;
-  if (!user) throw new Error("User not logged in");
+export const getUserTransactions = async (uid?: string) => {
+  const userId = uid || auth.currentUser?.uid;
+  if (!userId) throw new Error("User not logged in");
 
   const q = query(
     collection(db, "transactions"),
-    where("uid", "==", user.uid),
+    where("uid", "==", userId),
     orderBy("createdAt", "desc")
   );
 
@@ -43,10 +44,17 @@ export const addTransaction = async (transaction: {
   const user = auth.currentUser;
   if (!user) throw new Error("User not logged in");
 
+  // Use provided date or current timestamp
+  const timestamp = transaction.createdAt
+    ? Timestamp.fromDate(transaction.createdAt)
+    : Timestamp.now();
+
   const docRef = await addDoc(collection(db, "transactions"), {
     uid: user.uid,
-    ...transaction,
-    createdAt: Timestamp.now(),
+    amount: transaction.amount,
+    category: transaction.category,
+    description: transaction.description || "",
+    createdAt: timestamp,
   });
 
   return docRef.id;
