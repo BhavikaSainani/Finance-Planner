@@ -15,6 +15,11 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import {
   AlertDialog,
   AlertDialogAction,
   AlertDialogCancel,
@@ -43,6 +48,7 @@ import {
   GraduationCap,
   Heart,
   Home,
+  Info,
   Loader2,
   MoreHorizontal,
   PiggyBank,
@@ -381,7 +387,7 @@ const Spending = () => {
 
     transactions.forEach((tx: any) => {
       // Skip income entries for spending analysis
-      if (tx.category === "Income" || tx.amount > 0) return;
+      if (tx.category === "Income") return;
       
       const category = tx.category || "Other";
       const amount = Math.abs(Number(tx.amount || 0));
@@ -697,14 +703,36 @@ const Spending = () => {
             </DialogContent>
           </Dialog>
 
-          <Button
-            variant="default"
-            onClick={() => fileInputRef.current?.click()}
-            className="gap-2"
-          >
-            <Upload className="h-4 w-4" />
-            Upload Statement
-          </Button>
+          <div className="flex items-center gap-1">
+            <Button
+              variant="default"
+              onClick={() => fileInputRef.current?.click()}
+              className="gap-2"
+            >
+              <Upload className="h-4 w-4" />
+              Upload Statement
+            </Button>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button variant="ghost" size="icon" className="h-8 w-8">
+                  <Info className="h-4 w-4 text-muted-foreground" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="bottom" className="max-w-xs">
+                <p className="font-semibold mb-1">CSV Format Required:</p>
+                <p className="text-xs text-muted-foreground mb-2">
+                  Your CSV should have these columns:
+                </p>
+                <code className="text-xs bg-muted p-1 rounded block">
+                  date,description,amount
+                </code>
+                <p className="text-xs text-muted-foreground mt-2">
+                  Example row:<br/>
+                  2025-01-05,Swiggy Food,450
+                </p>
+              </TooltipContent>
+            </Tooltip>
+          </div>
 
           {recentTransactions.length > 0 && (
             <AlertDialog>
