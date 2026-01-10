@@ -1,5 +1,4 @@
-import { auth } from "@/firebase/auth";
-import { db } from "@/firebase/db";
+import { auth, db } from "@/firebase/firebaseConfig";
 import { onAuthStateChanged, signOut } from "firebase/auth";
 import { doc, getDoc, setDoc } from "firebase/firestore";
 import { useEffect, useState } from "react";

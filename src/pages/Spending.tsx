@@ -541,10 +541,11 @@ const Spending = () => {
 
   const totalSpending = categoryData.reduce((sum, c) => sum + c.value, 0);
   const totalBudget = categoryData.reduce((sum, c) => sum + c.budget, 0);
-  const budgetPercentage = totalBudget > 0 ? (totalSpending / totalBudget) * 100 : 0;
-  const actualSavings = financialSettings.monthlyIncome - totalSpending;
+  const budgetPercentage = totalBudget > 0 ? (totalSpending / totalBudget) * 100 : 0; // Actual percentage for display
+  const budgetProgressValue = Math.min(budgetPercentage, 100); // Capped at 100% for Progress bar
+  const actualSavings = financialSettings.monthlyIncome - totalSpending; // Can be negative
   const savingsProgress = financialSettings.monthlySavingsGoal > 0
-    ? (actualSavings / financialSettings.monthlySavingsGoal) * 100
+    ? Math.min(100, Math.max(0, (Math.max(0, actualSavings) / financialSettings.monthlySavingsGoal) * 100))
     : 0;
 
   const formatDate = (timestamp: any) => {
@@ -894,19 +895,27 @@ const Spending = () => {
         <Card className="animate-fade-up" style={{ animationDelay: "150ms" }}>
           <CardContent className="p-6">
             <p className="text-muted-foreground text-sm">Budget Status</p>
-            <p className="font-serif text-3xl font-bold mt-2">
+            <p className={cn(
+              "font-serif text-3xl font-bold mt-2",
+              budgetPercentage > 100 && "text-destructive"
+            )}>
               {budgetPercentage > 0 ? `${Math.round(budgetPercentage)}%` : "—"}
             </p>
             <Progress
-              value={Math.min(budgetPercentage, 100)}
+              value={budgetProgressValue}
               className={cn(
                 "mt-3",
-                budgetPercentage > 90 && "bg-destructive/20"
+                budgetPercentage > 100 && "bg-destructive/20"
               )}
             />
-            <p className="text-xs text-muted-foreground mt-2">
+            <p className={cn(
+              "text-xs mt-2",
+              budgetPercentage > 100 ? "text-destructive" : "text-muted-foreground"
+            )}>
               {totalBudget > 0
-                ? `₹${totalSpending.toLocaleString()} of ₹${totalBudget.toLocaleString()} budget`
+                ? budgetPercentage > 100 
+                  ? `⚠️ Over budget by ₹${(totalSpending - totalBudget).toLocaleString()}`
+                  : `₹${totalSpending.toLocaleString()} of ₹${totalBudget.toLocaleString()} budget`
                 : "Set budgets to track progress"}
             </p>
           </CardContent>

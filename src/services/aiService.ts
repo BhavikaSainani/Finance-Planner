@@ -84,7 +84,7 @@ export const generateGoalInsight = (goals: GoalData[]): string => {
   const insights: string[] = [];
   const totalSaved = goals.reduce((sum, g) => sum + g.current, 0);
   const totalTarget = goals.reduce((sum, g) => sum + g.target, 0);
-  const overallProgress = totalTarget > 0 ? (totalSaved / totalTarget) * 100 : 0;
+  const overallProgress = totalTarget > 0 ? Math.min(100, (totalSaved / totalTarget) * 100) : 0;
 
   // Check at-risk goals
   const atRiskGoals = goals.filter(g => g.status === "at-risk");

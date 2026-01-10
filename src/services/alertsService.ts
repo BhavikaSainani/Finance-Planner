@@ -1,4 +1,4 @@
-import { db } from "@/firebase/db";
+import { db } from "@/firebase/firebaseConfig";
 import {
     collection, query, where, getDocs, addDoc, updateDoc, doc, deleteDoc, Timestamp, orderBy
 } from "firebase/firestore";
@@ -61,14 +61,17 @@ export const deleteAlert = async (alertId: string) => {
 export const generateSmartAlerts = async (userId: string) => {
     try {
         // 1. Fetch Data
-        const transactions = await getUserTransactions();
+        const transactions = await getUserTransactions(userId);
         const goals = await getGoals();
         const investments = await getInvestments();
 
         const alertsToAdd: Partial<Alert>[] = [];
 
-        // 2. Spending Logic (Warning)
-        const totalSpending = transactions.reduce((sum: number, t: any) => sum + Number(t.amount || 0), 0);
+        // 2. Spending Logic (Warning) - expenses are negative amounts
+        const totalSpending = transactions
+            .filter((t: any) => t.amount < 0) // Only expenses (negative)
+            .reduce((sum: number, t: any) => sum + Math.abs(Number(t.amount || 0)), 0);
+        
         if (totalSpending > 50000) { // Example threshold
             alertsToAdd.push({
                 type: "warning",
@@ -76,6 +79,16 @@ export const generateSmartAlerts = async (userId: string) => {
                 message: `You've spent ₹${totalSpending.toLocaleString()} which is over the safe limit of ₹50k.`,
                 actionable: true,
                 actionLink: "/spending"
+            });
+        }
+        
+        // Low spending (good news!)
+        if (totalSpending > 0 && totalSpending < 20000) {
+            alertsToAdd.push({
+                type: "success",
+                title: "Great Savings Month!",
+                message: `Your spending this month is only ₹${totalSpending.toLocaleString()}. Keep up the good work!`,
+                actionable: false,
             });
         }
 

@@ -104,9 +104,9 @@ const Goals = () => {
           <p className="font-serif text-3xl font-bold text-foreground mt-2">
             ₹{totalSaved.toLocaleString()}
           </p>
-          <Progress value={totalTarget ? (totalSaved / totalTarget) * 100 : 0} className="mt-3" />
+          <Progress value={totalTarget ? Math.min(100, (totalSaved / totalTarget) * 100) : 0} className="mt-3" />
           <p className="text-muted-foreground text-xs mt-2">
-            {totalTarget ? Math.round((totalSaved / totalTarget) * 100) : 0}% of ₹{totalTarget.toLocaleString()}
+            {totalTarget ? Math.min(100, Math.round((totalSaved / totalTarget) * 100)) : 0}% of ₹{totalTarget.toLocaleString()}
           </p>
         </div>
 
@@ -146,7 +146,7 @@ const Goals = () => {
       ) : (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           {goals.map((goal, index) => {
-            const percentage = Math.round((goal.current / goal.target) * 100);
+            const percentage = Math.min(100, Math.round((goal.current / goal.target) * 100));
             const Icon = goal.icon || Target;
 
             return (
