@@ -10,6 +10,7 @@ import { useNavigate } from "react-router-dom";
 import { auth } from "@/firebase/firebaseConfig";
 import { onAuthStateChanged } from "firebase/auth";
 import { getAlerts, markAsRead as markAsReadService, deleteAlert as deleteService, generateSmartAlerts, Alert } from "@/services/alertsService";
+import { toast } from "sonner";
 
 const ICON_MAP = {
   warning: AlertTriangle,
@@ -87,6 +88,37 @@ const Alerts = () => {
           </p>
         </div>
         <div className="flex gap-2">
+          <Button variant="outline" onClick={async () => {
+            const user = auth.currentUser;
+            if (user) {
+              toast.info("Step 1: Generating...");
+              try {
+                await generateSmartAlerts(user.uid);
+                toast.success("Generated! Now fetching...");
+
+                try {
+                  const fetched = await getAlerts(user.uid);
+                  toast.info(`Fetched ${fetched.length} alerts.`);
+                  if (fetched.length === 0) {
+                    toast.warning("Fetch returned 0. Check Console for Index URL?");
+                  } else {
+                    window.location.reload();
+                  }
+                } catch (fetchErr: any) {
+                  toast.error("Fetch Error: " + fetchErr.message);
+                  // If it's an index error, the message usually contains a link.
+                  if (fetchErr.message.includes("index")) {
+                    prompt("Copy this Index URL:", fetchErr.message);
+                  }
+                }
+
+              } catch (e: any) {
+                toast.error("Gen Error: " + e.message);
+              }
+            }
+          }}>
+            Debug Alerts
+          </Button>
           {unreadCount > 0 && (
             <Button variant="soft" onClick={markAllAsRead}>
               Mark all as read

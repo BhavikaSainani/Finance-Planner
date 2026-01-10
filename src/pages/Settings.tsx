@@ -27,7 +27,11 @@ import {
   Target,
   AlertTriangle,
   CreditCard,
+  Moon,
+  Sun,
+  Laptop,
 } from "lucide-react";
+import { useTheme } from "@/components/theme-provider";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -63,6 +67,7 @@ interface Preferences {
 }
 
 const Settings = () => {
+  const { setTheme, theme } = useTheme();
   const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -346,6 +351,48 @@ const Settings = () => {
           </CardContent>
         </Card>
 
+        {/* Appearance Settings */}
+        <Card className="animate-fade-up" style={{ animationDelay: "150ms" }}>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Sun className="h-5 w-5 rotate-0 scale-100 transition-all dark:-rotate-90 dark:scale-0" />
+              <Moon className="absolute h-5 w-5 rotate-90 scale-0 transition-all dark:rotate-0 dark:scale-100" />
+              <span className="ml-6">Appearance</span>
+            </CardTitle>
+            <CardDescription>
+              Customize the look and feel of the application
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="flex items-center gap-4">
+              <Button
+                variant={theme === 'light' ? 'default' : 'outline'}
+                className="flex-1 gap-2"
+                onClick={() => setTheme("light")}
+              >
+                <Sun className="h-4 w-4" />
+                Light
+              </Button>
+              <Button
+                variant={theme === 'dark' ? 'default' : 'outline'}
+                className="flex-1 gap-2"
+                onClick={() => setTheme("dark")}
+              >
+                <Moon className="h-4 w-4" />
+                Dark
+              </Button>
+              <Button
+                variant={theme === 'system' ? 'default' : 'outline'}
+                className="flex-1 gap-2"
+                onClick={() => setTheme("system")}
+              >
+                <Laptop className="h-4 w-4" />
+                System
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+
         {/* Notification Settings */}
         <Card className="animate-fade-up" style={{ animationDelay: "200ms" }}>
           <CardHeader>
@@ -571,7 +618,7 @@ const Settings = () => {
           </CardContent>
         </Card>
       </div>
-    </MainLayout>
+    </MainLayout >
   );
 };
 
