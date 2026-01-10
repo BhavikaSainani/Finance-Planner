@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { TrendingUp, TrendingDown, Minus, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { auth } from "@/firebase/auth";
+import { auth } from "@/firebase/firebaseConfig";
 import { onAuthStateChanged } from "firebase/auth";
 import { getUserTransactions } from "@/services/transactionService";
 import { getGoals } from "@/services/goalsService";

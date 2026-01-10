@@ -1,3 +1,7 @@
+import { db } from "@/firebase/firebaseConfig";
+import {
+    collection, query, where, getDocs, addDoc, updateDoc, doc, deleteDoc, Timestamp, orderBy
+} from "firebase/firestore";
 import { getUserTransactions } from "./transactionService";
 import { getGoals } from "./goalsService";
 import { getInvestments } from "./investmentsService";
@@ -52,6 +56,7 @@ export const deleteAlert = async (alertId: string) => {
 
 export const generateSmartAlerts = async (userId: string) => {
     try {
+        // 1. Fetch Data
         const transactions = await getUserTransactions(userId).catch(() => []);
         const goals = await getGoals().catch(() => []);
         const investments = await getInvestments().catch(() => []);
@@ -70,15 +75,28 @@ export const generateSmartAlerts = async (userId: string) => {
             });
         }
 
-        // 1. Spending Logic
-        const totalSpending = (transactions as any[]).reduce((sum, t) => sum + Number(t.amount || 0), 0);
-        if (totalSpending > 10000) {
+        // 2. Spending Logic (Warning) - expenses are negative amounts
+        const totalSpending = (transactions as any[])
+            .filter((t: any) => t.amount < 0) // Only expenses (negative)
+            .reduce((sum: number, t: any) => sum + Math.abs(Number(t.amount || 0)), 0);
+
+        if (totalSpending > 50000) { // Example threshold
             alertsToAdd.push({
                 type: "warning",
                 title: "Spending Alert",
                 message: `You've spent ₹${totalSpending.toLocaleString()} this month. Keep an eye on your budget!`,
                 actionable: true,
                 actionLink: "/spending"
+            });
+        }
+
+        // Low spending (good news!)
+        if (totalSpending > 0 && totalSpending < 20000) {
+            alertsToAdd.push({
+                type: "success",
+                title: "Great Savings Month!",
+                message: `Your spending this month is only ₹${totalSpending.toLocaleString()}. Keep up the good work!`,
+                actionable: false,
             });
         }
 

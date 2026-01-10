@@ -1,7 +1,7 @@
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from "recharts";
 import { useEffect, useState } from "react";
 import { Loader2, PieChart as PieChartIcon } from "lucide-react";
-import { auth } from "@/firebase/auth";
+import { auth } from "@/firebase/firebaseConfig";
 import { onAuthStateChanged } from "firebase/auth";
 import { getUserTransactions } from "@/services/transactionService";
 import { getCategoryColor } from "@/utils/categorize";
@@ -60,13 +60,20 @@ export function SpendingChart() {
         const categoryMap: Record<string, number> = {};
         
         transactions.forEach((tx: any) => {
+          // Skip income entries (positive amounts or Income category)
+          if (tx.amount > 0 || tx.category === "Income") return;
+          
           let date: Date;
           if (tx.createdAt?.toDate) {
             date = tx.createdAt.toDate();
+          } else if (tx.createdAt?.seconds) {
+            date = new Date(tx.createdAt.seconds * 1000);
           } else if (tx.createdAt instanceof Date) {
             date = tx.createdAt;
-          } else {
+          } else if (tx.createdAt) {
             date = new Date(tx.createdAt);
+          } else {
+            return; // Skip if no valid date
           }
           
           // Only include this month's transactions

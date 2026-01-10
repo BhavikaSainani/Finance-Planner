@@ -1,17 +1,39 @@
-import { auth } from "@/firebase/auth";
-import { db } from "@/firebase/db";
-import { addDoc, collection, getDocs } from "firebase/firestore";
+import { auth, db } from "@/firebase/firebaseConfig";
+import { addDoc, collection, getDocs, doc, updateDoc, deleteDoc, serverTimestamp } from "firebase/firestore";
 
 export const createGoal = async (goal) => {
   const user = auth.currentUser;
-  return addDoc(
-    collection(db, "users", user.uid, "goals"),
-    goal
-  );
+  if (!user) {
+    console.error("createGoal: No user logged in");
+    throw new Error("User not logged in");
+  }
+
+  console.log("Creating goal for user:", user.uid);
+
+  try {
+    const docRef = await addDoc(
+      collection(db, "users", user.uid, "goals"),
+      {
+        ...goal,
+        uid: user.uid,
+        createdAt: serverTimestamp(),
+      }
+    );
+    console.log("Goal created with ID:", docRef.id);
+    return docRef;
+  } catch (error) {
+    console.error("Error creating goal:", error);
+    throw error;
+  }
 };
 
 export const getGoals = async () => {
   const user = auth.currentUser;
+  if (!user) {
+    console.error("getGoals: No user logged in");
+    throw new Error("User not logged in");
+  }
+
   const snap = await getDocs(
     collection(db, "users", user.uid, "goals")
   );
@@ -25,7 +47,8 @@ export const getGoals = async () => {
 const calculateGoalMetrics = (goal) => {
   const target = Number(goal.target) || 0;
   const current = Number(goal.current) || 0;
-  const deadline = new Date(goal.deadline);
+  // If we have deadline, parse it
+  const deadline = goal.deadline ? new Date(goal.deadline) : new Date();
   const today = new Date();
 
   // Months remaining
@@ -37,9 +60,6 @@ const calculateGoalMetrics = (goal) => {
   const monthlyRequired = Math.round(remainingAmount / safeMonths);
 
   // Status & Probability Logic
-  // Heuristic: Are we saving enough based on time passed?
-  // We assume start date was creation date, but if missing, use naive time check.
-
   // Simple check: If we have 0 months left and not reached target -> At Risk
   if (monthsRemaining <= 0 && current < target) {
     return {
@@ -50,17 +70,8 @@ const calculateGoalMetrics = (goal) => {
     };
   }
 
-  // Linear projection
-  // If we need to save > 100k/month (just an example threshold) -> maybe hard? 
-  // Better: If monthlyRequired is insanely high compared to current progress rate? 
-  // Since we don't have "saving rate", we'll just use a time-progress ratio if we had startDate.
-  // Without startDate, let's look at % achieved vs Time to deadline? 
-  // Let's assume a generic "start" was 1 year ago if unknown? No, unsafe.
-
-  // Let's stick to a simple "Is the deadline dangerously close?" check relative to amount needed.
-
   // If we need > 20% of the TOTAL target per month, it's risky
-  const percentNeededPerMonth = (monthlyRequired / target) * 100;
+  const percentNeededPerMonth = target > 0 ? (monthlyRequired / target) * 100 : 0;
 
   let status = "on-track";
   let probability = 90;
@@ -83,4 +94,20 @@ const calculateGoalMetrics = (goal) => {
   }
 
   return { monthlyRequired, status, probability, color };
+};
+
+export const updateGoal = async (goalId, data) => {
+  const user = auth.currentUser;
+  if (!user) throw new Error("User not logged in");
+
+  const goalRef = doc(db, "users", user.uid, "goals", goalId);
+  return updateDoc(goalRef, data);
+};
+
+export const deleteGoal = async (goalId) => {
+  const user = auth.currentUser;
+  if (!user) throw new Error("User not logged in");
+
+  const goalRef = doc(db, "users", user.uid, "goals", goalId);
+  return deleteDoc(goalRef);
 };

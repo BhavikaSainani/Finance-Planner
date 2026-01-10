@@ -1,7 +1,7 @@
 import { Wallet, TrendingUp, Target, PiggyBank, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useEffect, useState } from "react";
-import { auth } from "@/firebase/auth";
+import { auth } from "@/firebase/firebaseConfig";
 import { onAuthStateChanged } from "firebase/auth";
 import { getUserTransactions } from "@/services/transactionService";
 import { getGoals } from "@/services/goalsService";
@@ -76,13 +76,20 @@ export function QuickStats() {
         
         let monthlySpending = 0;
         transactions.forEach((tx: any) => {
+          // Skip income entries (positive amounts or Income category)
+          if (tx.amount > 0 || tx.category === "Income") return;
+          
           let date: Date;
           if (tx.createdAt?.toDate) {
             date = tx.createdAt.toDate();
+          } else if (tx.createdAt?.seconds) {
+            date = new Date(tx.createdAt.seconds * 1000);
           } else if (tx.createdAt instanceof Date) {
             date = tx.createdAt;
-          } else {
+          } else if (tx.createdAt) {
             date = new Date(tx.createdAt);
+          } else {
+            return; // Skip if no valid date
           }
           
           if (date.getMonth() === thisMonth && date.getFullYear() === thisYear) {
@@ -94,7 +101,7 @@ export function QuickStats() {
         const goals = await getGoals();
         const totalSaved = goals.reduce((sum: number, g: any) => sum + (g.current || 0), 0);
         const totalTarget = goals.reduce((sum: number, g: any) => sum + (g.target || 0), 0);
-        const goalsProgress = totalTarget > 0 ? Math.round((totalSaved / totalTarget) * 100) : 0;
+        const goalsProgress = totalTarget > 0 ? Math.min(100, Math.round((totalSaved / totalTarget) * 100)) : 0;
 
         // Calculate savings (income - spending)
         const income = 85000; // This could come from user settings
