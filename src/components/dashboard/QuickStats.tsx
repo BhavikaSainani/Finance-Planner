@@ -1,8 +1,9 @@
 import { Wallet, TrendingUp, Target, PiggyBank, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useEffect, useState } from "react";
-import { auth } from "@/firebase/firebaseConfig";
+import { auth, db } from "@/firebase/firebaseConfig";
 import { onAuthStateChanged } from "firebase/auth";
+import { doc, getDoc } from "firebase/firestore";
 import { getUserTransactions } from "@/services/transactionService";
 import { getGoals } from "@/services/goalsService";
 
@@ -53,7 +54,7 @@ export function QuickStats() {
   const [loading, setLoading] = useState(true);
   const [stats, setStats] = useState({
     totalSpending: 0,
-    monthlyIncome: 85000, // Default - could be from user settings
+    monthlyIncome: 0,
     savings: 0,
     goalsProgress: 0,
   });
@@ -66,19 +67,30 @@ export function QuickStats() {
       }
 
       try {
+        // Fetch user's financial settings from Firebase
+        let income = 0;
+        try {
+          const userRef = doc(db, "users", user.uid);
+          const userSnap = await getDoc(userRef);
+          if (userSnap.exists() && userSnap.data().financialSettings) {
+            income = userSnap.data().financialSettings.monthlyIncome || 0;
+          }
+        } catch (e) {
+          console.error("Failed to load user settings:", e);
+        }
+
         // Fetch transactions
         const transactions = await getUserTransactions(user.uid);
         
-        // Calculate this month's spending
+        // Calculate this month's spending (expenses are negative)
         const now = new Date();
         const thisMonth = now.getMonth();
         const thisYear = now.getFullYear();
         
         let monthlySpending = 0;
+        let monthlyIncomeFromTx = 0;
+        
         transactions.forEach((tx: any) => {
-          // Skip income entries (positive amounts or Income category)
-          if (tx.amount > 0 || tx.category === "Income") return;
-          
           let date: Date;
           if (tx.createdAt?.toDate) {
             date = tx.createdAt.toDate();
@@ -93,9 +105,19 @@ export function QuickStats() {
           }
           
           if (date.getMonth() === thisMonth && date.getFullYear() === thisYear) {
-            monthlySpending += Math.abs(Number(tx.amount || 0));
+            const amount = Number(tx.amount || 0);
+            if (amount < 0 && tx.category !== "Income") {
+              // Expense (negative amount)
+              monthlySpending += Math.abs(amount);
+            } else if (amount > 0 || tx.category === "Income") {
+              // Income (positive amount or Income category)
+              monthlyIncomeFromTx += Math.abs(amount);
+            }
           }
         });
+
+        // Use income from settings, or from transactions if not set
+        const effectiveIncome = income > 0 ? income : monthlyIncomeFromTx;
 
         // Fetch goals
         const goals = await getGoals();
@@ -104,12 +126,11 @@ export function QuickStats() {
         const goalsProgress = totalTarget > 0 ? Math.min(100, Math.round((totalSaved / totalTarget) * 100)) : 0;
 
         // Calculate savings (income - spending)
-        const income = 85000; // This could come from user settings
-        const savings = Math.max(0, income - monthlySpending);
+        const savings = effectiveIncome - monthlySpending;
 
         setStats({
           totalSpending: monthlySpending,
-          monthlyIncome: income,
+          monthlyIncome: effectiveIncome,
           savings: savings,
           goalsProgress: goalsProgress,
         });
@@ -127,27 +148,29 @@ export function QuickStats() {
     { 
       icon: Wallet, 
       label: "This Month's Spending", 
-      value: `₹${stats.totalSpending.toLocaleString()}`, 
-      change: stats.totalSpending > 50000 ? "High" : "Normal",
+      value: stats.totalSpending > 0 ? `₹${stats.totalSpending.toLocaleString()}` : "₹0", 
+      change: stats.totalSpending > 50000 ? "High" : stats.totalSpending > 0 ? "Normal" : undefined,
       positive: stats.totalSpending <= 50000
     },
     { 
       icon: TrendingUp, 
       label: "Monthly Income", 
-      value: `₹${stats.monthlyIncome.toLocaleString()}`, 
+      value: stats.monthlyIncome > 0 ? `₹${stats.monthlyIncome.toLocaleString()}` : "Not Set",
+      change: stats.monthlyIncome === 0 ? "Set in Spending" : undefined,
+      positive: true
     },
     { 
       icon: PiggyBank, 
       label: "Estimated Savings", 
-      value: `₹${stats.savings.toLocaleString()}`, 
-      change: stats.savings > 15000 ? "+Good" : "Low",
-      positive: stats.savings > 15000
+      value: stats.monthlyIncome > 0 ? `₹${stats.savings.toLocaleString()}` : "—", 
+      change: stats.savings > 0 ? "+Positive" : stats.savings < 0 ? "Negative" : undefined,
+      positive: stats.savings >= 0
     },
     { 
       icon: Target, 
       label: "Goals Progress", 
       value: `${stats.goalsProgress}%`, 
-      change: stats.goalsProgress >= 50 ? "On Track" : "Behind",
+      change: stats.goalsProgress >= 50 ? "On Track" : stats.goalsProgress > 0 ? "Behind" : undefined,
       positive: stats.goalsProgress >= 50
     },
   ];
