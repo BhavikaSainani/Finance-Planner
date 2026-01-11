@@ -1,9 +1,8 @@
-📊 My Financial Compass
+ My Financial Compass
 
 A modern, responsive personal finance web application built with React, TypeScript, Vite, Tailwind CSS, and shadcn/ui.
 It helps users track spending, analyze finances, and plan financial goals efficiently.
-
-🚀 Project Overview
+ Project Overview
 
 My Financial Compass is designed to provide:
 
@@ -15,7 +14,7 @@ A clean, user-friendly UI
 
 Fast performance with modern tooling
 
-🛠️ Tech Stack
+ Tech Stack
 
 This project is built using:
 
@@ -29,7 +28,7 @@ Tailwind CSS – utility-first styling
 
 shadcn/ui – accessible UI components
 
-📁 Project Setup (Run Locally)
+Project Setup (Run Locally)
 Prerequisites
 
 Make sure you have:
@@ -55,14 +54,13 @@ npm run dev
 The app will run at:
 
 http://localhost:5173
-
-📦 Available Scripts
+ Available Scripts
 Command	Description
 npm install	Install dependencies
 npm run dev	Start development server
 npm run build	Build for production
 npm run preview	Preview production build locally
-🌐 Deployment
+ Deployment
 
 You can deploy this project using any modern frontend hosting platform such as:
 
