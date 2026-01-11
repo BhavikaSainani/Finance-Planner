@@ -9,6 +9,9 @@ numpy>=1.26.0
 pandas>=2.1.0
 scikit-learn>=1.3.2
 
+# Google Gemini for AI-powered insights
+google-generativeai>=0.8.0
+
 # ML/AI libraries (optional - only if needed)
 # Uncomment these if you have GPU and want to use FinGPT models
 # torch>=2.1.0

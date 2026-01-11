@@ -1,7 +1,11 @@
 /**
- * AI Service with intelligent local fallback
- * Generates meaningful insights when backend API is unavailable
+ * AI Service with Real AI (Google Gemini) + Local Fallback
+ * Provides AI-powered financial insights
  */
+
+import axios from "axios";
+
+const AI_API_BASE = "http://localhost:8000/api/ai";
 
 // Types for insight generation
 interface SpendingData {
@@ -15,6 +19,7 @@ interface GoalData {
   current: number;
   target: number;
   status: string;
+  deadline?: string;
 }
 
 interface InvestmentData {
@@ -24,6 +29,175 @@ interface InvestmentData {
   current: number;
   change: number;
 }
+
+interface AIInsightResponse {
+  insight: string;
+  suggestions?: string[];
+  sentiment?: string;
+  ai_powered: boolean;
+}
+
+// Cache for AI responses to reduce API calls
+const insightCache = new Map<string, { insight: string; timestamp: number }>();
+const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+
+/**
+ * Get AI-powered spending insight
+ */
+export const getAISpendingInsight = async (
+  data: SpendingData[],
+  monthlyIncome?: number
+): Promise<{ insight: string; aiPowered: boolean }> => {
+  const cacheKey = `spending-${JSON.stringify(data)}-${monthlyIncome}`;
+  const cached = insightCache.get(cacheKey);
+  
+  if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
+    return { insight: cached.insight, aiPowered: true };
+  }
+
+  try {
+    const response = await axios.post<AIInsightResponse>(`${AI_API_BASE}/insight`, {
+      type: "spending",
+      spending_data: data,
+      monthly_income: monthlyIncome,
+    }, { timeout: 10000 });
+
+    if (response.data.insight) {
+      insightCache.set(cacheKey, { insight: response.data.insight, timestamp: Date.now() });
+      return { insight: response.data.insight, aiPowered: response.data.ai_powered };
+    }
+  } catch (error) {
+    console.log("AI API unavailable, using local insight");
+  }
+
+  // Fallback to local
+  const localInsight = generateSpendingInsight(data, data.reduce((sum, d) => sum + d.amount, 0));
+  return { insight: localInsight, aiPowered: false };
+};
+
+/**
+ * Get AI-powered goal insight
+ */
+export const getAIGoalInsight = async (
+  goals: GoalData[]
+): Promise<{ insight: string; aiPowered: boolean }> => {
+  const cacheKey = `goals-${JSON.stringify(goals)}`;
+  const cached = insightCache.get(cacheKey);
+  
+  if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
+    return { insight: cached.insight, aiPowered: true };
+  }
+
+  try {
+    const response = await axios.post<AIInsightResponse>(`${AI_API_BASE}/insight`, {
+      type: "goals",
+      goals_data: goals,
+    }, { timeout: 10000 });
+
+    if (response.data.insight) {
+      insightCache.set(cacheKey, { insight: response.data.insight, timestamp: Date.now() });
+      return { insight: response.data.insight, aiPowered: response.data.ai_powered };
+    }
+  } catch (error) {
+    console.log("AI API unavailable, using local insight");
+  }
+
+  // Fallback to local
+  const localInsight = generateGoalInsight(goals);
+  return { insight: localInsight, aiPowered: false };
+};
+
+/**
+ * Get AI-powered investment insight
+ */
+export const getAIInvestmentInsight = async (
+  investments: InvestmentData[]
+): Promise<{ insight: string; aiPowered: boolean }> => {
+  const cacheKey = `investments-${JSON.stringify(investments)}`;
+  const cached = insightCache.get(cacheKey);
+  
+  if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
+    return { insight: cached.insight, aiPowered: true };
+  }
+
+  try {
+    const response = await axios.post<AIInsightResponse>(`${AI_API_BASE}/insight`, {
+      type: "investments",
+      investments_data: investments,
+    }, { timeout: 10000 });
+
+    if (response.data.insight) {
+      insightCache.set(cacheKey, { insight: response.data.insight, timestamp: Date.now() });
+      return { insight: response.data.insight, aiPowered: response.data.ai_powered };
+    }
+  } catch (error) {
+    console.log("AI API unavailable, using local insight");
+  }
+
+  // Fallback to local
+  const localInsight = generateInvestmentInsight(investments);
+  return { insight: localInsight, aiPowered: false };
+};
+
+/**
+ * Chat with AI Financial Advisor
+ */
+export const chatWithAI = async (
+  message: string,
+  context?: {
+    spending?: SpendingData[];
+    goals?: GoalData[];
+    investments?: InvestmentData[];
+    monthlyIncome?: number;
+  }
+): Promise<{ response: string; aiPowered: boolean }> => {
+  try {
+    const response = await axios.post<AIInsightResponse>(`${AI_API_BASE}/chat`, {
+      type: "chat",
+      user_message: message,
+      spending_data: context?.spending,
+      goals_data: context?.goals,
+      investments_data: context?.investments,
+      monthly_income: context?.monthlyIncome,
+    }, { timeout: 15000 });
+
+    if (response.data.insight) {
+      return { response: response.data.insight, aiPowered: response.data.ai_powered };
+    }
+  } catch (error) {
+    console.log("AI chat unavailable, using local response");
+  }
+
+  // Fallback to local chat logic
+  const localResponse = await getAIAdvice(message);
+  return { response: localResponse, aiPowered: false };
+};
+
+/**
+ * Check AI service health (Gemini)
+ */
+export const checkAIHealth = async (): Promise<{
+  available: boolean;
+  aiPowered: boolean;
+  message: string;
+  model?: string;
+}> => {
+  try {
+    const response = await axios.get(`${AI_API_BASE}/health`, { timeout: 5000 });
+    return {
+      available: true,
+      aiPowered: response.data.api_key_configured,
+      message: response.data.status,
+      model: response.data.model || "gemini-1.5-flash",
+    };
+  } catch {
+    return {
+      available: false,
+      aiPowered: false,
+      message: "AI service unavailable - using local insights",
+    };
+  }
+};
 
 /**
  * Generate spending insights locally

@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { MainLayout } from "@/components/layout/MainLayout";
 import {
   AreaChart, Area, XAxis, YAxis, ResponsiveContainer, Tooltip,
@@ -6,12 +6,20 @@ import {
 } from "recharts";
 import {
   TrendingUp, TrendingDown, Shield, BarChart3,
-  Wallet, RefreshCw, AlertTriangle, CheckCircle2, Plus
+  Wallet, RefreshCw, AlertTriangle, CheckCircle2, Plus,
+  Activity, Clock, Loader2
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
+import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
-import { getInvestments } from "@/services/investmentsService";
+import { getInvestments, updateInvestment } from "@/services/investmentsService";
+import { 
+  getMarketIndices, 
+  updateInvestmentsWithMarketData,
+  getMarketStatus,
+  formatIndianCurrency
+} from "@/services/marketDataService";
 import { AddInvestmentDialog } from "@/components/investments/AddInvestmentDialog";
 import { toast } from "sonner";
 
@@ -43,6 +51,16 @@ interface Investment {
   invested: number;
   current: number;
   change: number;
+  platform?: string;
+  purchaseDate?: Date;
+  autoImported?: boolean;
+}
+
+interface MarketIndex {
+  name: string;
+  value: number;
+  change: number;
+  changePercent: number;
 }
 
 const CustomTooltip = ({ active, payload }: any) => {
@@ -59,7 +77,11 @@ const CustomTooltip = ({ active, payload }: any) => {
 const Investments = () => {
   const [holdings, setHoldings] = useState<Investment[]>([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [aiInsight, setAiInsight] = useState<string>("Analyzing your portfolio...");
+  const [marketIndices, setMarketIndices] = useState<MarketIndex[]>([]);
+  const [marketStatus, setMarketStatus] = useState({ isOpen: false, message: "Loading..." });
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
 
   // Calculations
   const totalInvested = holdings.reduce((sum, h) => sum + h.invested, 0);
@@ -83,35 +105,117 @@ const Investments = () => {
     color: COLORS[index % COLORS.length]
   }));
 
-  const loadInvestments = async () => {
+  // Load market indices
+  const loadMarketData = useCallback(async () => {
     try {
-      setLoading(true);
+      const indices = await getMarketIndices();
+      setMarketIndices(indices);
+      setMarketStatus(getMarketStatus());
+    } catch (error) {
+      console.error("Failed to load market data:", error);
+    }
+  }, []);
+
+  // Load investments and update with market data
+  const loadInvestments = async (showRefreshToast = false) => {
+    try {
+      if (showRefreshToast) {
+        setRefreshing(true);
+      } else {
+        setLoading(true);
+      }
+      
       const data = await getInvestments();
       const mapped: Investment[] = data.map((d: any) => ({
         id: d.id,
         name: d.name,
         type: d.type,
-        invested: d.invested,
-        current: d.current,
-        change: d.change
+        invested: d.invested || 0,
+        current: d.current || d.invested || 0,
+        change: d.change || 0,
+        platform: d.platform,
+        purchaseDate: d.purchaseDate?.toDate?.() || d.purchaseDate,
+        autoImported: d.autoImported,
       }));
-      setHoldings(mapped);
+
+      // Update with live market data
+      if (mapped.length > 0) {
+        const marketUpdates = await updateInvestmentsWithMarketData(
+          mapped.map(m => ({
+            id: m.id,
+            name: m.name,
+            type: m.type,
+            invested: m.invested,
+            purchaseDate: m.purchaseDate,
+          }))
+        );
+
+        // Merge market data into holdings
+        const updatedHoldings = mapped.map(h => {
+          const update = marketUpdates.find(u => u.id === h.id);
+          if (update) {
+            return {
+              ...h,
+              current: update.current,
+              change: update.changePercent,
+            };
+          }
+          return h;
+        });
+
+        setHoldings(updatedHoldings);
+
+        // Update Firebase with new values (optional - for persistence)
+        for (const update of marketUpdates) {
+          try {
+            await updateInvestment(update.id, {
+              current: update.current,
+              change: update.changePercent,
+            });
+          } catch (e) {
+            // Silently fail - Firebase update is optional
+          }
+        }
+      } else {
+        setHoldings(mapped);
+      }
+
+      setLastUpdated(new Date());
+      
+      if (showRefreshToast) {
+        toast.success("Portfolio updated with latest prices!");
+      }
     } catch (error) {
       console.error("Failed to load investments", error);
       toast.error("Could not load investments");
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
+  };
+
+  // Refresh prices
+  const handleRefresh = () => {
+    loadInvestments(true);
+    loadMarketData();
   };
 
   useEffect(() => {
     loadInvestments();
-  }, []);
+    loadMarketData();
+    
+    // Auto-refresh market data every 30 seconds during market hours
+    const interval = setInterval(() => {
+      loadMarketData();
+    }, 30000);
+    
+    return () => clearInterval(interval);
+  }, [loadMarketData]);
 
   useEffect(() => {
     if (holdings.length > 0) {
-      // Generate local insights directly
-      import("@/services/aiService").then((service) => {
+      // Try AI-powered insight first, fallback to local
+      import("@/services/aiService").then(async (service) => {
         const investmentData = holdings.map(h => ({
           name: h.name,
           type: h.type,
@@ -119,8 +223,15 @@ const Investments = () => {
           current: h.current,
           change: h.change,
         }));
-        const insight = service.generateInvestmentInsight(investmentData);
-        setAiInsight(insight);
+        
+        try {
+          const { insight, aiPowered } = await service.getAIInvestmentInsight(investmentData);
+          setAiInsight(aiPowered ? `🤖 ${insight}` : insight);
+        } catch {
+          // Fallback to local
+          const insight = service.generateInvestmentInsight(investmentData);
+          setAiInsight(insight);
+        }
       });
     } else if (!loading) {
       setAiInsight("Start tracking your investments to get portfolio analysis and recommendations!");
@@ -130,17 +241,72 @@ const Investments = () => {
   return (
     <MainLayout>
       {/* Header */}
-      <div className="flex items-center justify-between mb-8 animate-fade-up">
+      <div className="flex items-center justify-between mb-6 animate-fade-up">
         <div>
           <h1 className="font-serif text-3xl font-bold text-foreground">
             Investment Analyzer
           </h1>
-          <p className="text-muted-foreground mt-2">
-            Track your investments and get AI-powered insights
-          </p>
+          <div className="flex items-center gap-3 mt-2">
+            <Badge variant={marketStatus.isOpen ? "default" : "secondary"} className="gap-1">
+              <Activity className="h-3 w-3" />
+              {marketStatus.message}
+            </Badge>
+            {lastUpdated && (
+              <span className="text-xs text-muted-foreground flex items-center gap-1">
+                <Clock className="h-3 w-3" />
+                Updated {lastUpdated.toLocaleTimeString()}
+              </span>
+            )}
+          </div>
         </div>
-        <AddInvestmentDialog onInvestmentAdded={loadInvestments} />
+        <div className="flex items-center gap-2">
+          <Button 
+            variant="outline" 
+            size="sm" 
+            onClick={handleRefresh}
+            disabled={refreshing}
+            className="gap-2"
+          >
+            {refreshing ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <RefreshCw className="h-4 w-4" />
+            )}
+            Refresh Prices
+          </Button>
+          <AddInvestmentDialog onInvestmentAdded={() => loadInvestments()} />
+        </div>
       </div>
+
+      {/* Market Indices Ticker */}
+      {marketIndices.length > 0 && (
+        <div className="mb-6 overflow-hidden animate-fade-up">
+          <div className="flex gap-4 overflow-x-auto pb-2 scrollbar-hide">
+            {marketIndices.map((index) => (
+              <div 
+                key={index.name}
+                className="flex-shrink-0 px-4 py-2 rounded-lg bg-muted/50 border"
+              >
+                <p className="text-xs text-muted-foreground">{index.name}</p>
+                <div className="flex items-center gap-2">
+                  <span className="font-semibold">{index.value.toLocaleString()}</span>
+                  <span className={cn(
+                    "text-xs flex items-center gap-0.5",
+                    index.changePercent >= 0 ? "text-success" : "text-destructive"
+                  )}>
+                    {index.changePercent >= 0 ? (
+                      <TrendingUp className="h-3 w-3" />
+                    ) : (
+                      <TrendingDown className="h-3 w-3" />
+                    )}
+                    {index.changePercent >= 0 ? "+" : ""}{index.changePercent}%
+                  </span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Summary Cards */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
@@ -277,36 +443,65 @@ const Investments = () => {
             Holdings
           </h3>
           <div className="space-y-4">
-            {holdings.length === 0 && !loading ? (
-              <div className="text-center py-8 text-muted-foreground">No investments found.</div>
+            {loading ? (
+              <div className="flex items-center justify-center py-8">
+                <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+              </div>
+            ) : holdings.length === 0 ? (
+              <div className="text-center py-8 text-muted-foreground">
+                <Wallet className="h-12 w-12 mx-auto mb-3 opacity-30" />
+                <p>No investments found</p>
+                <p className="text-sm mt-1">Add investments manually or upload a bank statement</p>
+              </div>
             ) : (
-              holdings.map((holding) => (
-                <div
-                  key={holding.id}
-                  className="flex items-center justify-between p-4 rounded-lg bg-muted/30 hover:bg-muted/50 transition-colors"
-                >
-                  <div>
-                    <p className="font-medium text-foreground">{holding.name}</p>
-                    <p className="text-sm text-muted-foreground">{holding.type}</p>
+              holdings.map((holding) => {
+                const returns = holding.current - holding.invested;
+                const returnsPercent = holding.invested > 0 
+                  ? ((returns / holding.invested) * 100).toFixed(1) 
+                  : "0.0";
+                
+                return (
+                  <div
+                    key={holding.id}
+                    className="flex items-center justify-between p-4 rounded-lg bg-muted/30 hover:bg-muted/50 transition-colors"
+                  >
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <p className="font-medium text-foreground truncate">{holding.name}</p>
+                        {holding.autoImported && (
+                          <Badge variant="outline" className="text-xs shrink-0">Auto</Badge>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-2 mt-1">
+                        <Badge variant="secondary" className="text-xs">{holding.type}</Badge>
+                        {holding.platform && (
+                          <span className="text-xs text-muted-foreground">{holding.platform}</span>
+                        )}
+                      </div>
+                      <p className="text-xs text-muted-foreground mt-1">
+                        Invested: ₹{holding.invested.toLocaleString()}
+                      </p>
+                    </div>
+                    <div className="text-right shrink-0 ml-4">
+                      <p className="font-semibold text-foreground">
+                        ₹{holding.current.toLocaleString()}
+                      </p>
+                      <p className={cn(
+                        "text-sm font-medium flex items-center gap-1 justify-end",
+                        returns >= 0 ? "text-success" : "text-destructive"
+                      )}>
+                        {returns >= 0 ? (
+                          <TrendingUp className="h-3 w-3" />
+                        ) : (
+                          <TrendingDown className="h-3 w-3" />
+                        )}
+                        {returns >= 0 ? "+" : ""}₹{Math.abs(returns).toLocaleString()}
+                        <span className="text-xs">({returnsPercent}%)</span>
+                      </p>
+                    </div>
                   </div>
-                  <div className="text-right">
-                    <p className="font-semibold text-foreground">
-                      ₹{holding.current.toLocaleString()}
-                    </p>
-                    <p className={cn(
-                      "text-sm font-medium flex items-center gap-1 justify-end",
-                      holding.change >= 0 ? "text-success" : "text-destructive"
-                    )}>
-                      {holding.change >= 0 ? (
-                        <TrendingUp className="h-3 w-3" />
-                      ) : (
-                        <TrendingDown className="h-3 w-3" />
-                      )}
-                      {holding.change >= 0 ? "+" : ""}{holding.change}%
-                    </p>
-                  </div>
-                </div>
-              ))
+                );
+              })
             )}
           </div>
         </div>

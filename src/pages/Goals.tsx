@@ -63,16 +63,24 @@ const Goals = () => {
 
   useEffect(() => {
     if (goals.length > 0) {
-      // Generate local insights directly
-      import("@/services/aiService").then((service) => {
+      // Try AI-powered insight first, fallback to local
+      import("@/services/aiService").then(async (service) => {
         const goalData = goals.map(g => ({
           name: g.name,
           current: g.current,
           target: g.target,
           status: g.status,
+          deadline: g.deadline,
         }));
-        const insight = service.generateGoalInsight(goalData);
-        setAiInsight(insight);
+        
+        try {
+          const { insight, aiPowered } = await service.getAIGoalInsight(goalData);
+          setAiInsight(aiPowered ? `🤖 ${insight}` : insight);
+        } catch {
+          // Fallback to local
+          const insight = service.generateGoalInsight(goalData);
+          setAiInsight(insight);
+        }
       });
     } else if (!loading) {
       setAiInsight("Add your first financial goal to get personalized recommendations!");

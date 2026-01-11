@@ -46,9 +46,17 @@ const CATEGORY_KEYWORDS: Record<string, string[]> = {
     "apartment", "flat", "house rent", "room rent"
   ],
   "Investment": [
-    "mutual fund", "sip", "stock", "share", "trading", "zerodha",
+    "mutual fund", "mf", "sip", "stock", "share", "trading", "zerodha",
     "groww", "upstox", "investment", "fd", "fixed deposit", "rd",
-    "nps", "ppf", "gold", "bond", "demat"
+    "nps", "ppf", "gold", "bond", "demat", "kuvera", "coin", "smallcase",
+    "hdfc mf", "icici prudential", "sbi mf", "axis mf", "kotak mf",
+    "nippon", "aditya birla", "dsp", "uti mf", "tata mf", "franklin",
+    "mirae", "parag parikh", "quant", "motilal", "edelweiss",
+    "nifty", "sensex", "etf", "index fund", "equity", "debt fund",
+    "liquid fund", "elss", "tax saver", "bluechip", "midcap", "smallcap",
+    "flexi cap", "multi cap", "hybrid", "balanced", "gilt",
+    "angel one", "5paisa", "iifl", "paytm money", "et money",
+    "dividend", "nav", "folio", "units allotted", "units purchased"
   ],
   "Transfer": [
     "transfer", "upi", "neft", "imps", "rtgs", "sent to", "paid to",

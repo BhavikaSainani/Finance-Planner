@@ -14,11 +14,11 @@ import os
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'AI', 'FinGPT'))
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'AI', 'scikit-learn'))
 
-from routers import fingpt, sklearn_models
+from routers import fingpt, sklearn_models, ai_insights
 
 app = FastAPI(
     title="Finance Planner API",
-    description="API for financial analysis using FinGPT and scikit-learn",
+    description="API for financial analysis using FinGPT, scikit-learn, and AI insights",
     version="1.0.0"
 )
 
@@ -39,6 +39,7 @@ app.add_middleware(
 # Include routers
 app.include_router(fingpt.router, prefix="/api/fingpt", tags=["FinGPT"])
 app.include_router(sklearn_models.router, prefix="/api/ml", tags=["Machine Learning"])
+app.include_router(ai_insights.router, prefix="/api/ai", tags=["AI Insights"])
 
 
 @app.get("/")

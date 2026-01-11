@@ -1,8 +1,83 @@
 import { addTransaction } from "@/services/transactionService";
+import { addInvestment } from "@/services/investmentsService";
 import { categorizeTransaction } from "@/utils/categorize";
 import Papa from "papaparse";
 import { forwardRef, useState } from "react";
 import { toast } from "sonner";
+
+// Extract investment details from description
+const extractInvestmentDetails = (description: string, amount: number): {
+  name: string;
+  type: string;
+  platform: string;
+} | null => {
+  const text = description.toLowerCase();
+  
+  // Detect platform
+  let platform = "Unknown";
+  const platforms = [
+    { keywords: ["groww"], name: "Groww" },
+    { keywords: ["zerodha", "coin"], name: "Zerodha" },
+    { keywords: ["upstox"], name: "Upstox" },
+    { keywords: ["kuvera"], name: "Kuvera" },
+    { keywords: ["paytm money"], name: "Paytm Money" },
+    { keywords: ["et money"], name: "ET Money" },
+    { keywords: ["angel one", "angelone"], name: "Angel One" },
+    { keywords: ["5paisa"], name: "5Paisa" },
+    { keywords: ["hdfc"], name: "HDFC" },
+    { keywords: ["icici"], name: "ICICI" },
+    { keywords: ["sbi"], name: "SBI" },
+    { keywords: ["axis"], name: "Axis" },
+    { keywords: ["kotak"], name: "Kotak" },
+  ];
+  
+  for (const p of platforms) {
+    if (p.keywords.some(k => text.includes(k))) {
+      platform = p.name;
+      break;
+    }
+  }
+  
+  // Detect investment type
+  let type = "Mutual Fund";
+  if (text.includes("stock") || text.includes("share") || text.includes("equity") || 
+      text.includes("nifty") || text.includes("sensex") || text.includes("etf")) {
+    type = "Stocks";
+  } else if (text.includes("sip")) {
+    type = "SIP";
+  } else if (text.includes("fd") || text.includes("fixed deposit")) {
+    type = "Fixed Deposit";
+  } else if (text.includes("ppf")) {
+    type = "PPF";
+  } else if (text.includes("nps")) {
+    type = "NPS";
+  } else if (text.includes("gold")) {
+    type = "Gold";
+  } else if (text.includes("rd") || text.includes("recurring")) {
+    type = "Recurring Deposit";
+  } else if (text.includes("elss") || text.includes("tax saver")) {
+    type = "ELSS";
+  }
+  
+  // Generate a name
+  let name = `${platform} ${type}`;
+  
+  // Try to extract fund name patterns
+  const fundPatterns = [
+    /(?:sip|investment|purchase|buy)[\s-]*(?:in|of|for)?[\s-]*([a-z\s]+(?:fund|mf|direct|growth))/i,
+    /([a-z\s]+(?:bluechip|midcap|smallcap|flexi|multi|hybrid|balanced|liquid|gilt|nifty|sensex))/i,
+  ];
+  
+  for (const pattern of fundPatterns) {
+    const match = description.match(pattern);
+    if (match && match[1]) {
+      name = match[1].trim().replace(/\s+/g, ' ');
+      break;
+    }
+  }
+  
+  return { name, type, platform };
+};
 
 interface ParsedTransaction {
   date: Date;
@@ -160,6 +235,7 @@ const UploadStatement = forwardRef<HTMLInputElement, UploadStatementProps>(
             // Add transactions to Firestore
             let successCount = 0;
             let errorCount = 0;
+            let investmentCount = 0;
 
             for (const tx of transactions) {
               try {
@@ -171,6 +247,30 @@ const UploadStatement = forwardRef<HTMLInputElement, UploadStatementProps>(
                   createdAt: tx.date,
                 });
                 successCount++;
+
+                // If it's an investment, also add to investments collection
+                if (tx.category === "Investment") {
+                  try {
+                    const investmentDetails = extractInvestmentDetails(tx.description, tx.amount);
+                    if (investmentDetails) {
+                      await addInvestment({
+                        name: investmentDetails.name,
+                        type: investmentDetails.type,
+                        platform: investmentDetails.platform,
+                        invested: Math.abs(tx.amount),
+                        current: Math.abs(tx.amount), // Will be updated by market data
+                        change: 0,
+                        units: 0, // Unknown from bank statement
+                        purchaseDate: tx.date,
+                        description: tx.description,
+                        autoImported: true,
+                      });
+                      investmentCount++;
+                    }
+                  } catch (invError) {
+                    console.error("Failed to add investment:", invError);
+                  }
+                }
               } catch (error) {
                 console.error("Failed to add transaction:", error);
                 errorCount++;
@@ -180,6 +280,9 @@ const UploadStatement = forwardRef<HTMLInputElement, UploadStatementProps>(
             // Show results
             if (successCount > 0) {
               toast.success(`Successfully imported ${successCount} transactions!`);
+            }
+            if (investmentCount > 0) {
+              toast.success(`📈 Detected ${investmentCount} investments!`);
             }
             if (errorCount > 0) {
               toast.warning(`${errorCount} transactions failed to import`);

@@ -566,15 +566,34 @@ const Spending = () => {
 
     if (processedCategories.length > 0) {
       setLoadingInsight(true);
-      const localInsight = generateLocalInsight(
-        processedCategories,
-        totalSpending,
-        totalBudget,
-        financialSettings.monthlyIncome,
-        financialSettings.monthlySavingsGoal
-      );
-      setAiInsight(localInsight);
-      setLoadingInsight(false);
+      
+      // Try AI-powered insight first
+      import("@/services/aiService").then(async (service) => {
+        try {
+          const spendingData = processedCategories.map(c => ({
+            category: c.name,
+            amount: c.value,
+            budget: c.budget,
+          }));
+          
+          const { insight, aiPowered } = await service.getAISpendingInsight(
+            spendingData,
+            financialSettings.monthlyIncome
+          );
+          setAiInsight(aiPowered ? `🤖 ${insight}` : insight);
+        } catch {
+          // Fallback to local
+          const localInsight = generateLocalInsight(
+            processedCategories,
+            totalSpending,
+            totalBudget,
+            financialSettings.monthlyIncome,
+            financialSettings.monthlySavingsGoal
+          );
+          setAiInsight(localInsight);
+        }
+        setLoadingInsight(false);
+      });
     } else {
       setAiInsight("Upload your bank statement to get personalized spending insights.");
     }
@@ -617,16 +636,35 @@ const Spending = () => {
     if (categoryData.length > 0) {
       const totalSpending = categoryData.reduce((sum, c) => sum + c.value, 0);
       const totalBudget = categoryData.reduce((sum, c) => sum + c.budget, 0);
-      const localInsight = generateLocalInsight(
-        categoryData,
-        totalSpending,
-        totalBudget,
-        financialSettings.monthlyIncome,
-        financialSettings.monthlySavingsGoal
-      );
-      setAiInsight(localInsight);
+      
+      // Try AI-powered insight first
+      import("@/services/aiService").then(async (service) => {
+        try {
+          const spendingData = categoryData.map(c => ({
+            category: c.name,
+            amount: c.value,
+            budget: c.budget,
+          }));
+          
+          const { insight, aiPowered } = await service.getAISpendingInsight(
+            spendingData,
+            financialSettings.monthlyIncome
+          );
+          setAiInsight(aiPowered ? `🤖 ${insight}` : insight);
+        } catch {
+          // Fallback to local
+          const localInsight = generateLocalInsight(
+            categoryData,
+            totalSpending,
+            totalBudget,
+            financialSettings.monthlyIncome,
+            financialSettings.monthlySavingsGoal
+          );
+          setAiInsight(localInsight);
+        }
+      });
     }
-  }, [financialSettings]);
+  }, [financialSettings, categoryData]);
 
   const totalSpending = categoryData.reduce((sum, c) => sum + c.value, 0);
   const totalBudget = categoryData.reduce((sum, c) => sum + c.budget, 0);
