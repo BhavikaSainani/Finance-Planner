@@ -27,7 +27,7 @@ export interface EmailPreferences {
 }
 
 const LOCAL_STORAGE_KEY = "wealthwise_alerts";
-const FIREBASE_FUNCTIONS_URL = "https://us-central1-wealthwise-af0e4.cloudfunctions.net";
+const EMAIL_API_BASE = "http://localhost:8000/api/email";
 
 // ============== LOCAL STORAGE (for backward compatibility) ==============
 
@@ -156,14 +156,19 @@ export const saveEmailPreferences = async (userId: string, preferences: EmailPre
 export const sendEmailAlert = async (
     userId: string,
     alert: Omit<Alert, "id">,
-    email: string
+    email: string,
+    userName?: string
 ): Promise<boolean> => {
     try {
-        // Call Firebase Cloud Function
-        const response = await axios.post(`${FIREBASE_FUNCTIONS_URL}/sendEmailAlert`, {
-            userId,
-            alert,
+        const response = await axios.post(`${EMAIL_API_BASE}/send`, {
             email,
+            alert: {
+                type: alert.type,
+                title: alert.title,
+                message: alert.message,
+                actionLink: alert.actionLink,
+            },
+            userName,
         });
         
         return response.data.success;
@@ -175,7 +180,7 @@ export const sendEmailAlert = async (
 
 export const testEmailNotification = async (email: string): Promise<boolean> => {
     try {
-        const response = await axios.post(`${FIREBASE_FUNCTIONS_URL}/testEmail`, {
+        const response = await axios.post(`${EMAIL_API_BASE}/test`, {
             email,
         });
         
@@ -183,6 +188,19 @@ export const testEmailNotification = async (email: string): Promise<boolean> => 
     } catch (error) {
         console.error("Failed to send test email:", error);
         return false;
+    }
+};
+
+export const checkEmailHealth = async (): Promise<{ configured: boolean; status: string; message: string }> => {
+    try {
+        const response = await axios.get(`${EMAIL_API_BASE}/health`);
+        return response.data;
+    } catch (error) {
+        return {
+            configured: false,
+            status: "error",
+            message: "Email service unavailable",
+        };
     }
 };
 

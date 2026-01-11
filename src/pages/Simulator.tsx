@@ -126,25 +126,71 @@ const getScenarioParams = (scenario: string): Partial<SimulationParams> => {
 
 // Check if question is finance-related
 const isFinanceRelated = (message: string): boolean => {
+  const lowerMessage = message.toLowerCase();
+  
+  // Greeting keywords - allow these through
+  const greetingKeywords = ["hello", "hi", "hey", "good morning", "good evening", "namaste"];
+  const isGreeting = greetingKeywords.some(keyword => lowerMessage.includes(keyword));
+  if (isGreeting && lowerMessage.length < 30) {
+    return true; // Short greetings are allowed
+  }
+  
+  // Finance-specific keywords (NOT generic question words)
   const financeKeywords = [
-    "money", "save", "saving", "invest", "investment", "stock", "mutual fund",
-    "sip", "fd", "fixed deposit", "bank", "loan", "emi", "interest", "budget",
-    "expense", "income", "salary", "tax", "gst", "itr", "80c", "nps", "ppf",
-    "epf", "insurance", "lic", "term", "health", "retirement", "pension",
-    "goal", "target", "wealth", "rich", "poor", "debt", "credit", "debit",
-    "upi", "payment", "bill", "rent", "mortgage", "property", "real estate",
-    "gold", "silver", "crypto", "bitcoin", "nifty", "sensex", "market",
-    "trading", "broker", "zerodha", "groww", "portfolio", "return", "profit",
-    "loss", "inflation", "recession", "economy", "gdp", "rbi", "sebi",
+    // Core finance terms
+    "money", "save", "saving", "savings", "invest", "investment", "investing",
+    "stock", "stocks", "mutual fund", "mutual funds", "mf", "sip", "fd", 
+    "fixed deposit", "bank", "banking", "loan", "loans", "emi", "interest",
+    "budget", "budgeting", "expense", "expenses", "spending", "spend",
+    "income", "salary", "tax", "taxes", "gst", "itr", "80c", "80d", 
+    "nps", "ppf", "epf", "pf", "provident fund",
+    
+    // Insurance
+    "insurance", "lic", "term plan", "health insurance", "life insurance",
+    
+    // Goals & Planning
+    "retirement", "pension", "goal", "goals", "financial goal",
+    "wealth", "rich", "debt", "debts", "credit", "credit card", "debit",
+    
+    // Payments
+    "upi", "payment", "bill", "bills", "rent", "mortgage", "emi",
+    
+    // Assets
+    "property", "real estate", "gold", "silver", "crypto", "bitcoin",
+    "nifty", "sensex", "share", "shares", "equity", "equities",
+    
+    // Trading & Market
+    "market", "trading", "trade", "broker", "zerodha", "groww", "upstox",
+    "portfolio", "return", "returns", "profit", "loss", "roi",
+    
+    // Economy
+    "inflation", "recession", "economy", "gdp", "rbi", "sebi", "reserve bank",
+    
+    // Investment terms
     "elss", "ltcg", "stcg", "dividend", "capital gain", "nav", "amc",
-    "emergency fund", "financial", "finance", "rupee", "dollar", "currency",
-    "hello", "hi", "hey", "help", "what", "how", "why", "when", "can you",
-    "tell me", "explain", "suggest", "recommend", "advice", "tip",
-    "simulation", "projection", "future", "plan", "calculator"
+    "emergency fund", "financial", "finance", "rupee", "rupees", "dollar",
+    "currency", "forex",
+    
+    // App-specific
+    "simulation", "projection", "simulator", "calculate", "calculator",
+    "wealthwise", "wealth wise"
   ];
   
-  const lowerMessage = message.toLowerCase();
-  return financeKeywords.some(keyword => lowerMessage.includes(keyword));
+  // Check if message contains any finance keyword
+  const hasFinanceKeyword = financeKeywords.some(keyword => lowerMessage.includes(keyword));
+  
+  // Finance question patterns
+  const financePatterns = [
+    /how (much|can i|do i|should i|to) (save|invest|spend|budget)/i,
+    /what (is|are|should) (my|the|a) (saving|investment|budget|expense|goal|sip|fd|ppf)/i,
+    /should i (invest|save|buy|sell)/i,
+    /(tell|explain|help).*(saving|invest|money|budget|loan|tax|insurance|retirement)/i,
+    /\₹|\brs\.?|\binr\b|\blakh|\bcrore/i,  // Currency mentions
+  ];
+  
+  const matchesPattern = financePatterns.some(pattern => pattern.test(lowerMessage));
+  
+  return hasFinanceKeyword || matchesPattern;
 };
 
 // Generate local response for financial questions
@@ -234,7 +280,33 @@ const generateLocalFinancialResponse = (
 };
 
 // Off-topic response
-const getOffTopicResponse = (): string => {
+const getOffTopicResponse = (question: string): string => {
+  const lowerQuestion = question.toLowerCase();
+  
+  // Detect specific off-topic categories for personalized responses
+  const celebrityKeywords = ["virat", "kohli", "dhoni", "sachin", "shahrukh", "salman", "actor", "actress", "cricketer", "player", "celebrity", "bollywood", "hollywood"];
+  const politicsKeywords = ["modi", "rahul", "politics", "election", "bjp", "congress", "minister", "government", "parliament"];
+  const generalKnowledge = ["capital", "country", "president", "history", "geography", "science", "physics", "chemistry", "biology"];
+  const entertainment = ["movie", "song", "music", "game", "netflix", "series", "tv show"];
+  
+  const isCelebrity = celebrityKeywords.some(k => lowerQuestion.includes(k));
+  const isPolitics = politicsKeywords.some(k => lowerQuestion.includes(k));
+  const isGK = generalKnowledge.some(k => lowerQuestion.includes(k));
+  const isEntertainment = entertainment.some(k => lowerQuestion.includes(k));
+  
+  if (isCelebrity) {
+    return "🏏 While I appreciate the interest in celebrities, I'm your **Financial Advisor AI**! I specialize in money matters, not entertainment news.\n\n💰 I can help you with:\n• How to invest like the pros\n• Building wealth for your goals\n• Tax-saving strategies\n• SIP and mutual fund advice\n\nWhat financial question can I help with?";
+  }
+  
+  if (isPolitics) {
+    return "🗳️ I steer clear of politics! I'm your **Financial Advisor AI**, focused on helping you grow your wealth.\n\n📈 Ask me about:\n• Investment strategies\n• Tax planning (80C, 80D deductions)\n• Building an emergency fund\n• Retirement planning\n\nHow can I help with your finances?";
+  }
+  
+  if (isGK || isEntertainment) {
+    return "📚 That's a great general knowledge question, but I'm specialized in **personal finance**!\n\n🎯 I can help you with:\n• Savings and budgeting\n• Stock market basics\n• Mutual funds & SIP\n• Loan and EMI planning\n\nWhat would you like to know about your money?";
+  }
+  
+  // Default off-topic responses
   const responses = [
     "🙏 I appreciate the question, but I'm your **Financial Advisor AI** - I specialize in money matters like savings, investments, budgeting, and financial planning.\n\nTry asking me about:\n💰 How to save more money\n📈 Investment strategies (SIP, mutual funds)\n🎯 Your financial goals\n🏖️ Retirement planning\n📊 Your simulation results\n\nHow can I help with your finances today?",
     
@@ -411,7 +483,7 @@ const Simulator = () => {
       // Check if question is finance-related
       if (!isFinanceRelated(currentInput)) {
         // Off-topic question - politely redirect
-        response = getOffTopicResponse();
+        response = getOffTopicResponse(currentInput);
       } else {
         // Try Gemini API first for finance questions
         try {

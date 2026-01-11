@@ -23,6 +23,7 @@ import {
   getEmailPreferences,
   saveEmailPreferences,
   testEmailNotification,
+  checkEmailHealth,
   EmailPreferences,
 } from "@/services/alertsService";
 import { toast } from "sonner";
@@ -33,6 +34,11 @@ export function EmailSettings() {
   const [saving, setSaving] = useState(false);
   const [testingSend, setTestingSend] = useState(false);
   const [userEmail, setUserEmail] = useState<string | null>(null);
+  const [emailServiceStatus, setEmailServiceStatus] = useState<{
+    configured: boolean;
+    status: string;
+    message: string;
+  } | null>(null);
 
   const [preferences, setPreferences] = useState<EmailPreferences>({
     enabled: false,
@@ -44,6 +50,7 @@ export function EmailSettings() {
     if (open && auth.currentUser) {
       loadPreferences();
       setUserEmail(auth.currentUser.email);
+      checkEmailStatus();
     }
   }, [open]);
 
@@ -59,6 +66,11 @@ export function EmailSettings() {
     } finally {
       setLoading(false);
     }
+  };
+
+  const checkEmailStatus = async () => {
+    const status = await checkEmailHealth();
+    setEmailServiceStatus(status);
   };
 
   const handleSave = async () => {
@@ -159,6 +171,27 @@ export function EmailSettings() {
           </div>
         ) : (
           <div className="space-y-6">
+            {/* Email Service Status */}
+            {emailServiceStatus && !emailServiceStatus.configured && (
+              <div className="p-3 rounded-lg bg-yellow-50 border border-yellow-200 dark:bg-yellow-900/20 dark:border-yellow-800">
+                <p className="text-sm font-medium text-yellow-800 dark:text-yellow-200">⚠️ Email Setup Required</p>
+                <p className="text-xs text-yellow-700 dark:text-yellow-300 mt-1">
+                  {emailServiceStatus.message}
+                </p>
+                <p className="text-xs text-yellow-600 dark:text-yellow-400 mt-2">
+                  Add to backend/.env:<br />
+                  <code className="bg-yellow-100 dark:bg-yellow-800 px-1 rounded">GMAIL_USER=your@gmail.com</code><br />
+                  <code className="bg-yellow-100 dark:bg-yellow-800 px-1 rounded">GMAIL_APP_PASSWORD=xxxx-xxxx-xxxx-xxxx</code>
+                </p>
+              </div>
+            )}
+
+            {emailServiceStatus?.configured && (
+              <div className="p-3 rounded-lg bg-green-50 border border-green-200 dark:bg-green-900/20 dark:border-green-800">
+                <p className="text-sm font-medium text-green-800 dark:text-green-200">✅ Email Service Ready</p>
+              </div>
+            )}
+
             {/* User Email Display */}
             <div className="p-3 rounded-lg bg-muted/50">
               <p className="text-sm text-muted-foreground">Notifications will be sent to:</p>
