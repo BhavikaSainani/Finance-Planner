@@ -18,7 +18,9 @@ import {
   getMarketIndices, 
   updateInvestmentsWithMarketData,
   getMarketStatus,
-  formatIndianCurrency
+  formatIndianCurrency,
+  checkMarketDataHealth,
+  MarketStatus
 } from "@/services/marketDataService";
 import { AddInvestmentDialog } from "@/components/investments/AddInvestmentDialog";
 import { toast } from "sonner";
@@ -54,6 +56,8 @@ interface Investment {
   platform?: string;
   purchaseDate?: Date;
   autoImported?: boolean;
+  symbol?: string;      // Stock symbol (e.g., RELIANCE.NS)
+  schemeCode?: string;  // AMFI scheme code for mutual funds
 }
 
 interface MarketIndex {
@@ -108,9 +112,12 @@ const Investments = () => {
   // Load market indices
   const loadMarketData = useCallback(async () => {
     try {
-      const indices = await getMarketIndices();
+      const [indices, status] = await Promise.all([
+        getMarketIndices(),
+        getMarketStatus()
+      ]);
       setMarketIndices(indices);
-      setMarketStatus(getMarketStatus());
+      setMarketStatus(status);
     } catch (error) {
       console.error("Failed to load market data:", error);
     }
@@ -136,9 +143,11 @@ const Investments = () => {
         platform: d.platform,
         purchaseDate: d.purchaseDate?.toDate?.() || d.purchaseDate,
         autoImported: d.autoImported,
+        symbol: d.symbol,           // Stock symbol for real-time prices
+        schemeCode: d.schemeCode,   // AMFI code for MF NAV
       }));
 
-      // Update with live market data
+      // Update with live market data from Yahoo Finance & AMFI
       if (mapped.length > 0) {
         const marketUpdates = await updateInvestmentsWithMarketData(
           mapped.map(m => ({
@@ -147,6 +156,8 @@ const Investments = () => {
             type: m.type,
             invested: m.invested,
             purchaseDate: m.purchaseDate,
+            symbol: m.symbol,
+            schemeCode: m.schemeCode,
           }))
         );
 
