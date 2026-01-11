@@ -12,6 +12,14 @@ import { Input } from "@/components/ui/input";
 
 import { Lock, Mail, Sparkles, User } from "lucide-react";
 
+/* ================= PASSWORD VALIDATION ================= */
+const validatePassword = (password: string) => {
+  const passwordRegex =
+    /^(?=.*[A-Za-z])(?=.*\d)(?=.*[@$!%*#?&])[A-Za-z\d@$!%*#?&]{8,}$/;
+
+  return passwordRegex.test(password);
+};
+
 const Signup = () => {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
@@ -20,12 +28,24 @@ const Signup = () => {
 
   const navigate = useNavigate();
 
+  /* ================= SIGNUP HANDLER ================= */
   const handleSignup = async (e: React.FormEvent) => {
     e.preventDefault();
+
+    if (!validatePassword(password)) {
+      toast({
+        variant: "destructive",
+        title: "Weak password",
+        description:
+          "Password must be at least 8 characters long and include letters, numbers, and special characters.",
+      });
+      return;
+    }
+
     setLoading(true);
 
     try {
-      // 1️⃣ Create auth user
+      // 🔐 Create Auth User
       const userCredential = await createUserWithEmailAndPassword(
         auth,
         email,
@@ -34,10 +54,10 @@ const Signup = () => {
 
       const user = userCredential.user;
 
-      // 2️⃣ Save display name in Auth
+      // 🧾 Save display name in Auth
       await updateProfile(user, { displayName: name });
 
-      // 3️⃣ Save user in Firestore
+      // 🗄️ Save user in Firestore
       await setDoc(doc(db, "users", user.uid), {
         name,
         email,
@@ -49,7 +69,6 @@ const Signup = () => {
         description: "Please login to continue.",
       });
 
-      // ✅ Redirect to LOGIN (important)
       navigate("/login");
     } catch (err: any) {
       toast({
@@ -126,7 +145,7 @@ const Signup = () => {
               <Lock className="absolute left-3 top-3.5 h-4 w-4 text-muted-foreground" />
               <Input
                 type="password"
-                placeholder="Password (min 6 characters)"
+                placeholder="Password (8+ chars, letters, numbers & symbols)"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 className="pl-10"

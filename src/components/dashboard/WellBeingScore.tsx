@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
 import { TrendingUp, TrendingDown, Minus, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { auth } from "@/firebase/firebaseConfig";
+import { auth, db } from "@/firebase/firebaseConfig";
 import { onAuthStateChanged } from "firebase/auth";
+import { doc, getDoc } from "firebase/firestore";
 import { getUserTransactions } from "@/services/transactionService";
 import { getGoals } from "@/services/goalsService";
 import { getInvestments } from "@/services/investmentsService";
@@ -26,6 +27,26 @@ export function WellBeingScore() {
       }
 
       try {
+        // Fetch user's financial settings from Firebase
+        let income = 0;
+        let totalBudget = 0;
+        try {
+          const userRef = doc(db, "users", user.uid);
+          const userSnap = await getDoc(userRef);
+          if (userSnap.exists()) {
+            if (userSnap.data().financialSettings) {
+              income = userSnap.data().financialSettings.monthlyIncome || 0;
+            }
+            // Calculate total budget from category budgets
+            if (userSnap.data().categoryBudgets) {
+              totalBudget = Object.values(userSnap.data().categoryBudgets as Record<string, number>)
+                .reduce((sum: number, val: number) => sum + val, 0);
+            }
+          }
+        } catch (e) {
+          console.error("Failed to load user settings:", e);
+        }
+
         // Fetch all data
         const [transactions, goals, investments] = await Promise.all([
           getUserTransactions(user.uid),
@@ -33,37 +54,51 @@ export function WellBeingScore() {
           getInvestments(),
         ]);
 
-        // Calculate monthly spending
+        // Calculate monthly spending (only expenses - negative amounts)
         const now = new Date();
         const thisMonth = now.getMonth();
         const thisYear = now.getFullYear();
         
         let monthlySpending = 0;
+        let monthlyIncomeFromTx = 0;
         transactions.forEach((tx: any) => {
           let date: Date;
           if (tx.createdAt?.toDate) {
             date = tx.createdAt.toDate();
-          } else {
+          } else if (tx.createdAt?.seconds) {
+            date = new Date(tx.createdAt.seconds * 1000);
+          } else if (tx.createdAt) {
             date = new Date(tx.createdAt);
+          } else {
+            return;
           }
           
           if (date.getMonth() === thisMonth && date.getFullYear() === thisYear) {
-            monthlySpending += Math.abs(Number(tx.amount || 0));
+            const amount = Number(tx.amount || 0);
+            if (amount < 0 && tx.category !== "Income") {
+              // Expense
+              monthlySpending += Math.abs(amount);
+            } else if (amount > 0 || tx.category === "Income") {
+              // Income
+              monthlyIncomeFromTx += Math.abs(amount);
+            }
           }
         });
 
+        // Use income from settings, or from transactions
+        const effectiveIncome = income > 0 ? income : monthlyIncomeFromTx;
+
         // Calculate scores (each out of 25)
-        const income = 85000; // Could come from settings
         
         // Savings Score (25 points) - Based on savings rate
-        const savingsRate = income > 0 ? ((income - monthlySpending) / income) * 100 : 0;
-        const savingsScore = Math.min(25, Math.max(0, savingsRate * 1.25)); // 20% savings = 25 points
+        const savingsRate = effectiveIncome > 0 ? ((effectiveIncome - monthlySpending) / effectiveIncome) * 100 : 0;
+        const savingsScore = effectiveIncome > 0 ? Math.min(25, Math.max(0, savingsRate * 1.25)) : 0; // 20% savings = 25 points
         
         // Goals Score (25 points) - Based on goal progress
         const totalSaved = goals.reduce((sum: number, g: any) => sum + (g.current || 0), 0);
         const totalTarget = goals.reduce((sum: number, g: any) => sum + (g.target || 0), 0);
         const goalsProgress = totalTarget > 0 ? (totalSaved / totalTarget) * 100 : 0;
-        const goalsScore = Math.min(25, goalsProgress * 0.25);
+        const goalsScore = goals.length > 0 ? Math.min(25, goalsProgress * 0.25) : 0;
         
         // Investment Score (25 points) - Based on diversification and returns
         const totalInvested = investments.reduce((sum: number, i: any) => sum + (i.invested || 0), 0);
@@ -75,9 +110,11 @@ export function WellBeingScore() {
         const investmentScore = investments.length > 0 ? diversificationBonus + returnBonus : 0;
         
         // Budget Score (25 points) - Based on staying within budget
-        const budgetLimit = 60000; // Could come from settings
-        const budgetUsed = budgetLimit > 0 ? (monthlySpending / budgetLimit) * 100 : 100;
-        const budgetScore = budgetUsed <= 100 ? Math.max(0, 25 - (budgetUsed - 80) * 1.25) : 0;
+        const effectiveBudget = totalBudget > 0 ? totalBudget : effectiveIncome * 0.8; // Default to 80% of income
+        const budgetUsed = effectiveBudget > 0 ? (monthlySpending / effectiveBudget) * 100 : 100;
+        const budgetScore = effectiveBudget > 0 
+          ? (budgetUsed <= 100 ? Math.max(0, 25 - Math.max(0, budgetUsed - 80) * 1.25) : 0)
+          : 0;
 
         const totalScore = Math.round(savingsScore + goalsScore + investmentScore + budgetScore);
         

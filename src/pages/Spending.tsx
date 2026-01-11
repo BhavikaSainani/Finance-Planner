@@ -261,19 +261,81 @@ const Spending = () => {
     type: "income" as "income" | "expense",
   });
 
+  // Category budgets (user-defined)
+  const [categoryBudgets, setCategoryBudgets] = useState<Record<string, number>>({});
+  const [budgetDialogOpen, setBudgetDialogOpen] = useState(false);
+  const [tempBudgets, setTempBudgets] = useState<Record<string, string>>({});
+
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Get budget for a category (user-defined or default)
+  const getBudget = (category: string): number => {
+    if (categoryBudgets[category] !== undefined) {
+      return categoryBudgets[category];
+    }
+    return CATEGORY_META[category]?.budget || 0;
+  };
 
   // Load financial settings
   const loadFinancialSettings = async (uid: string) => {
     try {
       const userRef = doc(db, "users", uid);
       const snap = await getDoc(userRef);
-      if (snap.exists() && snap.data().financialSettings) {
-        setFinancialSettings(snap.data().financialSettings);
+      if (snap.exists()) {
+        if (snap.data().financialSettings) {
+          setFinancialSettings(snap.data().financialSettings);
+        }
+        if (snap.data().categoryBudgets) {
+          setCategoryBudgets(snap.data().categoryBudgets);
+        }
       }
     } catch (error) {
       console.error("Failed to load financial settings:", error);
     }
+  };
+
+  // Save category budgets
+  const saveCategoryBudgets = async () => {
+    if (!userId) return;
+
+    try {
+      const userRef = doc(db, "users", userId);
+      const budgetsToSave: Record<string, number> = {};
+      
+      Object.entries(tempBudgets).forEach(([category, value]) => {
+        const numValue = parseFloat(value);
+        if (!isNaN(numValue) && numValue >= 0) {
+          budgetsToSave[category] = numValue;
+        }
+      });
+
+      await setDoc(userRef, { categoryBudgets: budgetsToSave }, { merge: true });
+      setCategoryBudgets(budgetsToSave);
+      setBudgetDialogOpen(false);
+      toast.success("Category budgets saved!");
+
+      // Refresh data to update display
+      if (userId) {
+        const transactions = await getUserTransactions(userId);
+        processTransactions(transactions);
+      }
+    } catch (error) {
+      console.error("Failed to save budgets:", error);
+      toast.error("Failed to save budgets");
+    }
+  };
+
+  // Open budget dialog with current values
+  const openBudgetDialog = () => {
+    const currentBudgets: Record<string, string> = {};
+    const categories = ["Food & Dining", "Rent", "Transportation", "Shopping", "Utilities", "Entertainment", "Healthcare", "Education", "Other"];
+    
+    categories.forEach(cat => {
+      currentBudgets[cat] = (categoryBudgets[cat] ?? CATEGORY_META[cat]?.budget ?? 0).toString();
+    });
+    
+    setTempBudgets(currentBudgets);
+    setBudgetDialogOpen(true);
   };
 
   // Save financial settings
@@ -388,9 +450,36 @@ const Spending = () => {
     }
   };
 
+  // Helper to parse transaction date
+  const getTransactionDate = (tx: any): Date | null => {
+    if (!tx.createdAt) return null;
+    
+    if (tx.createdAt.toDate) {
+      return tx.createdAt.toDate();
+    } else if (tx.createdAt instanceof Date) {
+      return tx.createdAt;
+    } else if (tx.createdAt.seconds) {
+      return new Date(tx.createdAt.seconds * 1000);
+    } else {
+      return new Date(tx.createdAt);
+    }
+  };
+
+  // Helper to check if transaction is in current month
+  const isCurrentMonth = (tx: any): boolean => {
+    const date = getTransactionDate(tx);
+    if (!date) return false;
+    
+    const now = new Date();
+    return date.getMonth() === now.getMonth() && date.getFullYear() === now.getFullYear();
+  };
+
   // Process transactions
   const processTransactions = (transactions: any[]) => {
-    // Store recent transactions (excluding income for display)
+    // Filter transactions for current month only (for budget comparison)
+    const currentMonthTransactions = transactions.filter(isCurrentMonth);
+
+    // Store recent transactions (excluding income for display) - show all, not just current month
     setRecentTransactions(
       transactions
         .filter((tx: any) => tx.category !== "Income")
@@ -404,10 +493,10 @@ const Spending = () => {
         }))
     );
 
-    /* ---------- CATEGORY AGGREGATION (expenses only) ---------- */
+    /* ---------- CATEGORY AGGREGATION (current month expenses only) ---------- */
     const categoryMap: Record<string, CategoryData> = {};
 
-    transactions.forEach((tx: any) => {
+    currentMonthTransactions.forEach((tx: any) => {
       // Skip income entries for spending analysis
       if (tx.category === "Income" || tx.amount > 0) return;
       const category = tx.category || "Other";
@@ -418,7 +507,7 @@ const Spending = () => {
         categoryMap[category] = {
           name: category,
           value: 0,
-          budget: meta.budget || 0,
+          budget: getBudget(category),
           color: meta.color || getCategoryColor(category),
           count: 0,
         };
@@ -726,6 +815,66 @@ const Spending = () => {
             </DialogContent>
           </Dialog>
 
+          {/* Set Category Budgets Dialog */}
+          <Dialog open={budgetDialogOpen} onOpenChange={setBudgetDialogOpen}>
+            <DialogTrigger asChild>
+              <Button
+                variant="outline"
+                className="gap-2"
+                onClick={openBudgetDialog}
+              >
+                <PiggyBank className="h-4 w-4" />
+                Set Budgets
+              </Button>
+            </DialogTrigger>
+            <DialogContent className="max-w-md max-h-[80vh] overflow-y-auto">
+              <DialogHeader>
+                <DialogTitle>Category Budgets</DialogTitle>
+                <DialogDescription>
+                  Set monthly budget limits for each spending category
+                </DialogDescription>
+              </DialogHeader>
+              <div className="space-y-4 py-4">
+                {["Food & Dining", "Rent", "Transportation", "Shopping", "Utilities", "Entertainment", "Healthcare", "Education", "Other"].map((category) => {
+                  const meta = CATEGORY_META[category];
+                  const Icon = meta?.icon || MoreHorizontal;
+                  return (
+                    <div key={category} className="flex items-center gap-3">
+                      <div
+                        className="p-2 rounded-lg shrink-0"
+                        style={{ backgroundColor: `${meta?.color || "#888"}20` }}
+                      >
+                        <Icon className="h-4 w-4" style={{ color: meta?.color || "#888" }} />
+                      </div>
+                      <div className="flex-1">
+                        <Label htmlFor={`budget-${category}`} className="text-sm font-medium">
+                          {category}
+                        </Label>
+                        <div className="relative mt-1">
+                          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">₹</span>
+                          <Input
+                            id={`budget-${category}`}
+                            type="number"
+                            placeholder="0"
+                            className="pl-7"
+                            value={tempBudgets[category] || ""}
+                            onChange={(e) => setTempBudgets(prev => ({ ...prev, [category]: e.target.value }))}
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setBudgetDialogOpen(false)}>
+                  Cancel
+                </Button>
+                <Button onClick={saveCategoryBudgets}>Save Budgets</Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+
           <div className="flex items-center gap-1">
             <Button
               variant="default"
@@ -809,7 +958,7 @@ const Spending = () => {
                   <ShoppingBag className="h-5 w-5 text-destructive" />
                 </div>
                 <div>
-                  <p className="text-xs text-muted-foreground">Total Expenses</p>
+                  <p className="text-xs text-muted-foreground">This Month's Expenses</p>
                   <p className="font-semibold">₹{totalSpending.toLocaleString()}</p>
                 </div>
               </div>
@@ -823,7 +972,7 @@ const Spending = () => {
                   <PiggyBank className={cn("h-5 w-5", actualSavings >= 0 ? "text-success" : "text-destructive")} />
                 </div>
                 <div>
-                  <p className="text-xs text-muted-foreground">Actual Savings</p>
+                  <p className="text-xs text-muted-foreground">This Month's Savings</p>
                   <p className={cn("font-semibold", actualSavings >= 0 ? "text-success" : "text-destructive")}>
                     {actualSavings >= 0 ? "+" : ""}₹{actualSavings.toLocaleString()}
                   </p>
@@ -873,7 +1022,7 @@ const Spending = () => {
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
         <Card className="animate-fade-up" style={{ animationDelay: "100ms" }}>
           <CardContent className="p-6">
-            <p className="text-muted-foreground text-sm">Total Spending</p>
+            <p className="text-muted-foreground text-sm">This Month's Spending</p>
             <p className="font-serif text-3xl font-bold mt-2">
               ₹{totalSpending.toLocaleString()}
             </p>
@@ -882,11 +1031,11 @@ const Spending = () => {
                 <>
                   <ArrowUpRight className="h-4 w-4 text-destructive" />
                   <span className="text-sm text-muted-foreground">
-                    {categoryData.length} categories tracked
+                    {categoryData.length} categories • {new Date().toLocaleString('en-US', { month: 'long', year: 'numeric' })}
                   </span>
                 </>
               ) : (
-                <span className="text-sm text-muted-foreground">No data yet</span>
+                <span className="text-sm text-muted-foreground">No data this month</span>
               )}
             </div>
           </CardContent>
@@ -894,30 +1043,43 @@ const Spending = () => {
 
         <Card className="animate-fade-up" style={{ animationDelay: "150ms" }}>
           <CardContent className="p-6">
-            <p className="text-muted-foreground text-sm">Budget Status</p>
-            <p className={cn(
-              "font-serif text-3xl font-bold mt-2",
-              budgetPercentage > 100 && "text-destructive"
-            )}>
-              {budgetPercentage > 0 ? `${Math.round(budgetPercentage)}%` : "—"}
-            </p>
-            <Progress
-              value={budgetProgressValue}
-              className={cn(
-                "mt-3",
-                budgetPercentage > 100 && "bg-destructive/20"
-              )}
-            />
-            <p className={cn(
-              "text-xs mt-2",
-              budgetPercentage > 100 ? "text-destructive" : "text-muted-foreground"
-            )}>
-              {totalBudget > 0
-                ? budgetPercentage > 100 
-                  ? `⚠️ Over budget by ₹${(totalSpending - totalBudget).toLocaleString()}`
-                  : `₹${totalSpending.toLocaleString()} of ₹${totalBudget.toLocaleString()} budget`
-                : "Set budgets to track progress"}
-            </p>
+            <p className="text-muted-foreground text-sm">Monthly Budget Status</p>
+            {totalBudget > 0 ? (
+              budgetPercentage > 100 ? (
+                <>
+                  <div className="flex items-baseline gap-2 mt-2">
+                    <span className="font-serif text-3xl font-bold text-destructive">
+                      Over
+                    </span>
+                    <span className="text-lg font-semibold text-destructive">
+                      by ₹{(totalSpending - totalBudget).toLocaleString()}
+                    </span>
+                  </div>
+                  <Progress value={100} className="mt-3 bg-destructive/20" />
+                  <p className="text-xs text-destructive mt-2">
+                    ⚠️ Budget ₹{totalBudget.toLocaleString()} → Spent ₹{totalSpending.toLocaleString()} ({Math.round(budgetPercentage)}%)
+                  </p>
+                </>
+              ) : (
+                <>
+                  <p className="font-serif text-3xl font-bold mt-2 text-success">
+                    {Math.round(budgetPercentage)}%
+                  </p>
+                  <Progress value={budgetProgressValue} className="mt-3" />
+                  <p className="text-xs text-muted-foreground mt-2">
+                    ₹{totalSpending.toLocaleString()} of ₹{totalBudget.toLocaleString()} budget
+                  </p>
+                </>
+              )
+            ) : (
+              <>
+                <p className="font-serif text-3xl font-bold mt-2">—</p>
+                <Progress value={0} className="mt-3" />
+                <p className="text-xs text-muted-foreground mt-2">
+                  Set budgets in categories to track progress
+                </p>
+              </>
+            )}
           </CardContent>
         </Card>
 
@@ -937,7 +1099,7 @@ const Spending = () => {
         {/* Pie Chart */}
         <Card className="animate-fade-up" style={{ animationDelay: "250ms" }}>
           <CardHeader>
-            <CardTitle className="font-serif">Spending by Category</CardTitle>
+            <CardTitle className="font-serif">Spending by Category (This Month)</CardTitle>
           </CardHeader>
           <CardContent>
             {categoryData.length > 0 ? (
@@ -1033,7 +1195,7 @@ const Spending = () => {
         {/* Category Breakdown */}
         <Card className="animate-fade-up" style={{ animationDelay: "350ms" }}>
           <CardHeader>
-            <CardTitle className="font-serif">Category Breakdown</CardTitle>
+            <CardTitle className="font-serif">Category Breakdown (This Month)</CardTitle>
           </CardHeader>
           <CardContent>
             {categoryData.length > 0 ? (
@@ -1042,6 +1204,8 @@ const Spending = () => {
                   const Icon = CATEGORY_META[cat.name]?.icon || MoreHorizontal;
                   const isOverBudget = cat.budget > 0 && cat.value > cat.budget;
                   const budgetUsed = cat.budget > 0 ? (cat.value / cat.budget) * 100 : 0;
+                  const overAmount = cat.value - cat.budget;
+                  const spendingPercent = totalSpending > 0 ? (cat.value / totalSpending) * 100 : 0;
 
                   return (
                     <div key={cat.name} className="space-y-2">
@@ -1056,7 +1220,7 @@ const Spending = () => {
                           <div>
                             <p className="font-medium text-sm">{cat.name}</p>
                             <p className="text-xs text-muted-foreground">
-                              {cat.count} transactions
+                              {cat.count} transactions • {spendingPercent.toFixed(0)}% of total
                             </p>
                           </div>
                         </div>
@@ -1066,20 +1230,29 @@ const Spending = () => {
                             <p
                               className={cn(
                                 "text-xs",
-                                isOverBudget ? "text-destructive" : "text-muted-foreground"
+                                isOverBudget ? "text-destructive" : "text-success"
                               )}
                             >
-                              {isOverBudget ? "Over " : ""}
-                              {budgetUsed.toFixed(0)}% of ₹{cat.budget.toLocaleString()}
+                              {isOverBudget
+                                ? `₹${cat.budget.toLocaleString()} → ₹${cat.value.toLocaleString()}`
+                                : `₹${(cat.budget - cat.value).toLocaleString()} left of ₹${cat.budget.toLocaleString()}`}
                             </p>
                           )}
                         </div>
                       </div>
                       {cat.budget > 0 && (
-                        <Progress
-                          value={Math.min(budgetUsed, 100)}
-                          className={cn("h-1.5", isOverBudget && "bg-destructive/20")}
-                        />
+                        <div className="flex items-center gap-2">
+                          <Progress
+                            value={Math.min(budgetUsed, 100)}
+                            className={cn("h-1.5 flex-1", isOverBudget && "bg-destructive/20")}
+                          />
+                          <span className={cn(
+                            "text-xs font-medium w-12 text-right",
+                            isOverBudget ? "text-destructive" : "text-muted-foreground"
+                          )}>
+                            {budgetUsed > 100 ? "100%+" : `${budgetUsed.toFixed(0)}%`}
+                          </span>
+                        </div>
                       )}
                     </div>
                   );
