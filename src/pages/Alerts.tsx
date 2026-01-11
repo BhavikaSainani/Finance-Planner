@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { MainLayout } from "@/components/layout/MainLayout";
 import {
   AlertTriangle, Target, Sparkles, TrendingDown,
-  PiggyBank, Bell, Check, X
+  PiggyBank, Bell, Check, X, Mail
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -11,6 +11,7 @@ import { auth } from "@/firebase/firebaseConfig";
 import { onAuthStateChanged } from "firebase/auth";
 import { getAlerts, markAsRead as markAsReadService, deleteAlert as deleteService, generateSmartAlerts, Alert } from "@/services/alertsService";
 import { toast } from "sonner";
+import { EmailSettings } from "@/components/alerts/EmailSettings";
 
 const ICON_MAP = {
   warning: AlertTriangle,
@@ -88,13 +89,14 @@ const Alerts = () => {
           </p>
         </div>
         <div className="flex gap-2">
+          <EmailSettings />
           <Button variant="outline" onClick={async () => {
             const user = auth.currentUser;
             if (user) {
-              toast.info("Step 1: Generating...");
+              toast.info("Generating alerts...");
               try {
                 await generateSmartAlerts(user.uid);
-                toast.success("Generated! Now fetching...");
+                toast.success("Alerts updated!");
 
                 try {
                   const fetched = await getAlerts(user.uid);

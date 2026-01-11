@@ -1,5 +1,6 @@
 import { MainLayout } from "@/components/layout/MainLayout";
 import { Button } from "@/components/ui/button";
+import { chatWithAI } from "@/services/aiService";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -122,7 +123,32 @@ const getScenarioParams = (scenario: string): Partial<SimulationParams> => {
 };
 
 /* ================== AI CHATBOT LOGIC ================== */
-const generateChatResponse = (
+
+// Check if question is finance-related
+const isFinanceRelated = (message: string): boolean => {
+  const financeKeywords = [
+    "money", "save", "saving", "invest", "investment", "stock", "mutual fund",
+    "sip", "fd", "fixed deposit", "bank", "loan", "emi", "interest", "budget",
+    "expense", "income", "salary", "tax", "gst", "itr", "80c", "nps", "ppf",
+    "epf", "insurance", "lic", "term", "health", "retirement", "pension",
+    "goal", "target", "wealth", "rich", "poor", "debt", "credit", "debit",
+    "upi", "payment", "bill", "rent", "mortgage", "property", "real estate",
+    "gold", "silver", "crypto", "bitcoin", "nifty", "sensex", "market",
+    "trading", "broker", "zerodha", "groww", "portfolio", "return", "profit",
+    "loss", "inflation", "recession", "economy", "gdp", "rbi", "sebi",
+    "elss", "ltcg", "stcg", "dividend", "capital gain", "nav", "amc",
+    "emergency fund", "financial", "finance", "rupee", "dollar", "currency",
+    "hello", "hi", "hey", "help", "what", "how", "why", "when", "can you",
+    "tell me", "explain", "suggest", "recommend", "advice", "tip",
+    "simulation", "projection", "future", "plan", "calculator"
+  ];
+  
+  const lowerMessage = message.toLowerCase();
+  return financeKeywords.some(keyword => lowerMessage.includes(keyword));
+};
+
+// Generate local response for financial questions
+const generateLocalFinancialResponse = (
   message: string,
   params: SimulationParams,
   financials: UserFinancials,
@@ -134,7 +160,7 @@ const generateChatResponse = (
 
   // Greeting responses
   if (lowerMessage.includes("hello") || lowerMessage.includes("hi") || lowerMessage.includes("hey")) {
-    return `Hello! 👋 I'm your AI Financial Advisor. I can help you understand your simulation results, suggest ways to improve your savings, and answer financial planning questions. What would you like to know?`;
+    return `Hello! 👋 I'm your AI Financial Advisor powered by Google Gemini. I can help you understand your simulation results, suggest ways to improve your savings, and answer financial planning questions. What would you like to know?`;
   }
 
   // Simulation results
@@ -183,7 +209,7 @@ const generateChatResponse = (
   // Retirement
   if (lowerMessage.includes("retire") || lowerMessage.includes("retirement")) {
     const monthlyExpenseAtRetirement = financials.monthlyExpenses * Math.pow(1 + params.inflationRate / 100, params.years);
-    const corpusNeeded = monthlyExpenseAtRetirement * 12 * 25; // 25x annual expenses rule
+    const corpusNeeded = monthlyExpenseAtRetirement * 12 * 25;
     return `🏖️ **Retirement Planning**:\n\nBased on your current expenses (₹${financials.monthlyExpenses.toLocaleString()}/month):\n\n- **Expenses at retirement** (${params.years} years, ${params.inflationRate}% inflation): ₹${Math.round(monthlyExpenseAtRetirement).toLocaleString()}/month\n- **Corpus needed** (25x rule): ₹${Math.round(corpusNeeded).toLocaleString()}\n- **Your projected savings**: ₹${finalYear?.current?.toLocaleString() || 0}\n\n${finalYear?.current >= corpusNeeded ? "✅ You're on track for retirement!" : "⚠️ You may need to increase savings or extend timeline."}\n\nWant me to calculate the ideal monthly savings for your retirement goal?`;
   }
 
@@ -203,14 +229,21 @@ const generateChatResponse = (
     return `📈 **SIP (Systematic Investment Plan)**:\n\nSIP is one of the best ways to build wealth:\n\n**Benefits:**\n- Rupee cost averaging (buy more when markets are low)\n- Disciplined investing\n- Power of compounding\n- Start with as little as ₹500/month\n\n**Your SIP potential:**\n- Current: ₹${params.monthlySavings.toLocaleString()}/month\n- At ${params.annualReturn}% for ${params.years} years\n- **Result**: ₹${finalYear?.current?.toLocaleString() || 0}\n\nStart a SIP in index funds or diversified equity funds for long-term wealth creation!`;
   }
 
-  // Default response
-  const defaultResponses = [
-    `I'm here to help with your financial simulation! You can ask me about:\n\n💰 Savings tips\n📈 Investment strategies\n🎯 Goal planning\n📊 Simulation results\n🏖️ Retirement planning\n🆘 Emergency funds\n\nWhat would you like to explore?`,
-    `Based on your simulation, you're projecting ₹${finalYear?.current?.toLocaleString() || 0} in ${params.years} years. That's a great start! Would you like suggestions on how to improve this?`,
-    `I see you're saving ₹${params.monthlySavings.toLocaleString()}/month. The improved path shows an extra ₹${difference.toLocaleString()} with 50% more savings. Small changes lead to big results!`,
-  ];
+  // Default financial response
+  return `Based on your simulation, you're projecting ₹${finalYear?.current?.toLocaleString() || 0} in ${params.years} years. That's a great start! Would you like suggestions on how to improve this?\n\nI can help with:\n💰 Savings tips\n📈 Investment strategies\n🎯 Goal planning\n🏖️ Retirement planning`;
+};
 
-  return defaultResponses[Math.floor(Math.random() * defaultResponses.length)];
+// Off-topic response
+const getOffTopicResponse = (): string => {
+  const responses = [
+    "🙏 I appreciate the question, but I'm your **Financial Advisor AI** - I specialize in money matters like savings, investments, budgeting, and financial planning.\n\nTry asking me about:\n💰 How to save more money\n📈 Investment strategies (SIP, mutual funds)\n🎯 Your financial goals\n🏖️ Retirement planning\n📊 Your simulation results\n\nHow can I help with your finances today?",
+    
+    "😊 That's an interesting question, but I'm designed to help with **personal finance and investments**.\n\nI can assist you with:\n• Analyzing your savings projection\n• Explaining investment options\n• Planning for retirement\n• Building an emergency fund\n• Understanding inflation impact\n\nWhat financial topic would you like to explore?",
+    
+    "🤖 I'm WealthWise AI - your personal **Financial Advisor**! While I'd love to chat about everything, I'm most helpful with money-related questions.\n\nAsk me things like:\n• \"How can I increase my savings?\"\n• \"What's the best investment strategy?\"\n• \"How much do I need for retirement?\"\n• \"Explain SIP investing\"\n\nLet's talk about your financial future! 💸"
+  ];
+  
+  return responses[Math.floor(Math.random() * responses.length)];
 };
 
 /* ================== CUSTOM TOOLTIP ================== */
@@ -368,17 +401,55 @@ const Simulator = () => {
     };
 
     setMessages(prev => [...prev, userMessage]);
+    const currentInput = inputMessage;
     setInputMessage("");
     setIsTyping(true);
 
-    // Simulate AI thinking
-    setTimeout(() => {
-      const response = generateChatResponse(
-        inputMessage,
-        params,
-        financials,
-        projectionData
-      );
+    try {
+      let response: string;
+      
+      // Check if question is finance-related
+      if (!isFinanceRelated(currentInput)) {
+        // Off-topic question - politely redirect
+        response = getOffTopicResponse();
+      } else {
+        // Try Gemini API first for finance questions
+        try {
+          const { response: aiResponse, aiPowered } = await chatWithAI(
+            currentInput,
+            {
+              spending: [], // Could pass actual data here
+              goals: financials.goals.map(g => ({
+                name: g.name,
+                current: g.current,
+                target: g.target,
+                status: "on-track",
+              })),
+              monthlyIncome: financials.monthlyIncome,
+            }
+          );
+          
+          if (aiPowered && aiResponse) {
+            response = `🤖 ${aiResponse}`;
+          } else {
+            // Fallback to local response
+            response = generateLocalFinancialResponse(
+              currentInput,
+              params,
+              financials,
+              projectionData
+            );
+          }
+        } catch (error) {
+          // API failed, use local response
+          response = generateLocalFinancialResponse(
+            currentInput,
+            params,
+            financials,
+            projectionData
+          );
+        }
+      }
 
       const assistantMessage: ChatMessage = {
         id: (Date.now() + 1).toString(),
@@ -388,8 +459,18 @@ const Simulator = () => {
       };
 
       setMessages(prev => [...prev, assistantMessage]);
+    } catch (error) {
+      console.error("Chat error:", error);
+      const errorMessage: ChatMessage = {
+        id: (Date.now() + 1).toString(),
+        role: "assistant",
+        content: "Sorry, I encountered an error. Please try again!",
+        timestamp: new Date(),
+      };
+      setMessages(prev => [...prev, errorMessage]);
+    } finally {
       setIsTyping(false);
-    }, 1000);
+    }
   };
 
   // Handle quick suggestion click

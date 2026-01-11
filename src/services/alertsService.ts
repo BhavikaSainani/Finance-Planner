@@ -1,10 +1,11 @@
-import { db } from "@/firebase/firebaseConfig";
+import { auth, db } from "@/firebase/firebaseConfig";
 import {
-    collection, query, where, getDocs, addDoc, updateDoc, doc, deleteDoc, Timestamp, orderBy
+    collection, query, where, getDocs, addDoc, updateDoc, doc, deleteDoc, Timestamp, orderBy, getDoc, setDoc
 } from "firebase/firestore";
 import { getUserTransactions } from "./transactionService";
 import { getGoals } from "./goalsService";
 import { getInvestments } from "./investmentsService";
+import axios from "axios";
 
 export interface Alert {
     id: string;
@@ -16,9 +17,19 @@ export interface Alert {
     read: boolean;
     actionable: boolean;
     actionLink?: string;
+    emailSent?: boolean;
+}
+
+export interface EmailPreferences {
+    enabled: boolean;
+    types: ("warning" | "success" | "info" | "danger")[];
+    frequency: "instant" | "daily" | "weekly";
 }
 
 const LOCAL_STORAGE_KEY = "wealthwise_alerts";
+const FIREBASE_FUNCTIONS_URL = "https://us-central1-wealthwise-af0e4.cloudfunctions.net";
+
+// ============== LOCAL STORAGE (for backward compatibility) ==============
 
 const getLocalAlerts = (): Alert[] => {
     try {
@@ -33,25 +44,146 @@ const saveLocalAlerts = (alerts: Alert[]) => {
     localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(alerts));
 };
 
-export const getAlerts = async (userId: string): Promise<Alert[]> => {
-    // We simulate async to match interface, though localStorage is sync.
-    // In local mode, we ignore userId for storage key, or could mix it in.
-    // For simplicity, we just filter by userId if we wanted, but let's just use one store.
+// ============== FIRESTORE OPERATIONS ==============
 
+export const getAlerts = async (userId: string): Promise<Alert[]> => {
+    try {
+        // Try Firestore first
+        const alertsRef = collection(db, "users", userId, "alerts");
+        const snapshot = await getDocs(query(alertsRef, orderBy("createdAt", "desc")));
+        
+        if (!snapshot.empty) {
+            return snapshot.docs.map(doc => ({
+                id: doc.id,
+                ...doc.data(),
+            } as Alert));
+        }
+    } catch (error) {
+        console.log("Firestore alerts not available, using local storage");
+    }
+    
+    // Fallback to local storage
     const alerts = getLocalAlerts();
     return alerts.sort((a, b) => b.createdAt - a.createdAt);
 };
 
+export const addAlertToFirestore = async (userId: string, alert: Omit<Alert, "id">): Promise<string> => {
+    try {
+        const alertsRef = collection(db, "users", userId, "alerts");
+        const docRef = await addDoc(alertsRef, {
+            ...alert,
+            createdAt: Date.now(),
+        });
+        return docRef.id;
+    } catch (error) {
+        console.error("Failed to add alert to Firestore:", error);
+        throw error;
+    }
+};
+
 export const markAsRead = async (alertId: string) => {
+    const user = auth.currentUser;
+    
+    if (user) {
+        try {
+            const alertRef = doc(db, "users", user.uid, "alerts", alertId);
+            await updateDoc(alertRef, { read: true });
+            return;
+        } catch (error) {
+            console.log("Firestore update failed, using local storage");
+        }
+    }
+    
+    // Fallback to local storage
     const alerts = getLocalAlerts();
     const updated = alerts.map(a => a.id === alertId ? { ...a, read: true } : a);
     saveLocalAlerts(updated);
 };
 
 export const deleteAlert = async (alertId: string) => {
+    const user = auth.currentUser;
+    
+    if (user) {
+        try {
+            const alertRef = doc(db, "users", user.uid, "alerts", alertId);
+            await deleteDoc(alertRef);
+            return;
+        } catch (error) {
+            console.log("Firestore delete failed, using local storage");
+        }
+    }
+    
+    // Fallback to local storage
     const alerts = getLocalAlerts();
     const updated = alerts.filter(a => a.id !== alertId);
     saveLocalAlerts(updated);
+};
+
+// ============== EMAIL PREFERENCES ==============
+
+export const getEmailPreferences = async (userId: string): Promise<EmailPreferences> => {
+    try {
+        const userRef = doc(db, "users", userId);
+        const userDoc = await getDoc(userRef);
+        
+        if (userDoc.exists() && userDoc.data().emailPreferences) {
+            return userDoc.data().emailPreferences as EmailPreferences;
+        }
+    } catch (error) {
+        console.error("Failed to get email preferences:", error);
+    }
+    
+    // Default preferences
+    return {
+        enabled: false,
+        types: ["warning", "danger"],
+        frequency: "instant",
+    };
+};
+
+export const saveEmailPreferences = async (userId: string, preferences: EmailPreferences): Promise<void> => {
+    try {
+        const userRef = doc(db, "users", userId);
+        await setDoc(userRef, { emailPreferences: preferences }, { merge: true });
+    } catch (error) {
+        console.error("Failed to save email preferences:", error);
+        throw error;
+    }
+};
+
+// ============== SEND EMAIL ALERT ==============
+
+export const sendEmailAlert = async (
+    userId: string,
+    alert: Omit<Alert, "id">,
+    email: string
+): Promise<boolean> => {
+    try {
+        // Call Firebase Cloud Function
+        const response = await axios.post(`${FIREBASE_FUNCTIONS_URL}/sendEmailAlert`, {
+            userId,
+            alert,
+            email,
+        });
+        
+        return response.data.success;
+    } catch (error) {
+        console.error("Failed to send email alert:", error);
+        return false;
+    }
+};
+
+export const testEmailNotification = async (email: string): Promise<boolean> => {
+    try {
+        const response = await axios.post(`${FIREBASE_FUNCTIONS_URL}/testEmail`, {
+            email,
+        });
+        
+        return response.data.success;
+    } catch (error) {
+        console.error("Failed to send test email:", error);
+        return false;
+    }
 };
 
 export const generateSmartAlerts = async (userId: string) => {
@@ -61,15 +193,17 @@ export const generateSmartAlerts = async (userId: string) => {
         const goals = await getGoals().catch(() => []);
         const investments = await getInvestments().catch(() => []);
 
-        const existingAlerts = getLocalAlerts();
+        // Get existing alerts (from Firestore or local)
+        const existingAlerts = await getAlerts(userId);
+        const localAlerts = getLocalAlerts();
         const alertsToAdd: Partial<Alert>[] = [];
 
         // 0. Welcome Alert
-        if (existingAlerts.length === 0) {
+        if (existingAlerts.length === 0 && localAlerts.length === 0) {
             alertsToAdd.push({
                 type: "info",
                 title: "Welcome to WealthWise! 👋",
-                message: "This is your Alerts center. Important financial updates and insights will appear here.",
+                message: "This is your Alerts center. Important financial updates and insights will appear here. Enable email notifications in settings to stay informed!",
                 actionable: true,
                 actionLink: "/dashboard",
             });
@@ -83,7 +217,7 @@ export const generateSmartAlerts = async (userId: string) => {
         if (totalSpending > 50000) { // Example threshold
             alertsToAdd.push({
                 type: "warning",
-                title: "Spending Alert",
+                title: "High Spending Alert",
                 message: `You've spent ₹${totalSpending.toLocaleString()} this month. Keep an eye on your budget!`,
                 actionable: true,
                 actionLink: "/spending"
@@ -100,48 +234,109 @@ export const generateSmartAlerts = async (userId: string) => {
             });
         }
 
-        // 2. Goal Logic
+        // 3. Goal Logic
         const completedGoals = goals.filter((g: any) => g.current >= g.target);
         if (completedGoals.length > 0) {
             alertsToAdd.push({
                 type: "success",
-                title: "Goal Achieved!",
+                title: "🎉 Goal Achieved!",
                 message: `Congrats! You've reached your goal: ${completedGoals[0].name}.`,
-                actionable: false,
+                actionable: true,
+                actionLink: "/goals"
             });
         }
 
-        // 3. Investment Logic
-        const negativeInvestments = investments.filter((i: any) => i.change < -2);
+        // At-risk goals
+        const atRiskGoals = goals.filter((g: any) => {
+            const progress = g.target > 0 ? (g.current / g.target) * 100 : 0;
+            return progress < 30 && g.status === "at-risk";
+        });
+        if (atRiskGoals.length > 0) {
+            alertsToAdd.push({
+                type: "warning",
+                title: "Goal Needs Attention",
+                message: `"${atRiskGoals[0].name}" is behind schedule. Consider increasing monthly contributions.`,
+                actionable: true,
+                actionLink: "/goals"
+            });
+        }
+
+        // 4. Investment Logic
+        const negativeInvestments = investments.filter((i: any) => i.change < -5);
         if (negativeInvestments.length > 0) {
             alertsToAdd.push({
                 type: "danger",
-                title: "Portfolio Drop",
-                message: `${negativeInvestments[0].name} is down by ${Math.abs(negativeInvestments[0].change)}%.`,
+                title: "📉 Portfolio Drop Alert",
+                message: `${negativeInvestments[0].name} is down by ${Math.abs(negativeInvestments[0].change).toFixed(1)}%. Review your portfolio.`,
                 actionable: true,
                 actionLink: "/investments"
             });
         }
 
+        // Positive investment performance
+        const positiveInvestments = investments.filter((i: any) => i.change > 10);
+        if (positiveInvestments.length > 0) {
+            alertsToAdd.push({
+                type: "success",
+                title: "📈 Investment Performing Well",
+                message: `${positiveInvestments[0].name} is up ${positiveInvestments[0].change.toFixed(1)}%! Consider rebalancing if needed.`,
+                actionable: true,
+                actionLink: "/investments"
+            });
+        }
+
+        // Check email preferences
+        let emailPrefs: EmailPreferences | null = null;
+        let userEmail: string | null = null;
+        
+        try {
+            emailPrefs = await getEmailPreferences(userId);
+            userEmail = auth.currentUser?.email || null;
+        } catch {
+            // Email not available
+        }
+
         let hasNew = false;
         for (const alert of alertsToAdd) {
-            // Duplicate Check
-            const isDuplicate = existingAlerts.some(a => a.title === alert.title && !a.read);
+            // Duplicate Check - check both existing and local
+            const allAlerts = [...existingAlerts, ...localAlerts];
+            const isDuplicate = allAlerts.some(a => a.title === alert.title && !a.read);
+            
             if (!isDuplicate) {
-                existingAlerts.push({
+                const newAlert: Alert = {
                     id: Math.random().toString(36).substring(7),
-                    userId, // stored for interface consistency
-                    ...alert,
+                    ...alert as any,
                     read: false,
                     createdAt: Date.now(),
                     time: "Just now",
-                } as Alert);
+                    emailSent: false,
+                };
+                
+                // Try to save to Firestore (will trigger email via Cloud Function)
+                try {
+                    const firestoreId = await addAlertToFirestore(userId, newAlert);
+                    newAlert.id = firestoreId;
+                } catch {
+                    // Firestore failed, save locally
+                    localAlerts.push(newAlert);
+                }
+                
+                // Manual email send if Firestore trigger didn't work and email is enabled
+                if (emailPrefs?.enabled && userEmail && emailPrefs.types.includes(alert.type as any)) {
+                    try {
+                        await sendEmailAlert(userId, newAlert, userEmail);
+                        newAlert.emailSent = true;
+                    } catch {
+                        console.log("Email send failed");
+                    }
+                }
+                
                 hasNew = true;
             }
         }
 
         if (hasNew) {
-            saveLocalAlerts(existingAlerts);
+            saveLocalAlerts(localAlerts);
         }
 
     } catch (error) {
